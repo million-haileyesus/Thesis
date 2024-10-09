@@ -1,6 +1,6 @@
-### **Steps to implementing tracking the player closest to the ball at each time interval and generating commentary using LLMs to tell a story:**
+## **Steps to implementing tracking the player closest to the ball at each time interval and generating commentary using LLMs to tell a story:**
 
-#### 1. **Data Processing: Track Closest Player to the Ball**
+### 1. **Data Processing: Track Closest Player to the Ball**
    - **Objective**: For each time interval, determine the player closest to the ball and track how the situation evolves over time.
    - **How to do it**:
      - Calculate the Euclidean distance between the ball’s coordinates and each player's coordinates.
@@ -11,7 +11,7 @@
      - When the closest player changes (e.g., from attacker to defender), you can identify moments like passes, interceptions, or duels.
      - Create flags for different events such as a change in ball possession, tackles, or successful dribbles.
 
-#### 2. **Categorize Game Events**
+### 2. **Categorize Game Events**
    - **Ball Possession Events**: Label periods when a player is in possession of the ball (i.e., they are the closest player to the ball for a continuous time period).
      - **Example**: Player X retains possession for 3 seconds, covering Y meters.
    
@@ -24,7 +24,7 @@
    - **Defensive Actions**: If a defender becomes the closest player after an attacker, label it as an interception, tackle, or clearance depending on the position on the field and ball movement.
      - **Example**: Player X intercepts the ball from Player Y.
 
-#### 3. **Narrative Generation with LLM**
+### 3. **Narrative Generation with LLM**
    Now that you've got structured data on player-ball interactions, you can generate real-time commentary using LLMs. Here's how the system can work:
 
    - **Input**: Feed the LLM a sequence of events based on the processed data. Each event will include:
@@ -34,7 +34,7 @@
    
    - **Output**: The LLM will use this structured data to generate fluid, human-like commentary.
 
-#### 4. **Creating Storylines**
+### 4. **Creating Storylines**
    LLMs are excellent at creating context, continuity, and emotional tone. Here are some ways to craft rich, engaging commentary:
 
    - **Real-time play-by-play commentary**: 
@@ -61,7 +61,7 @@
        - Input: “Player A passes to Player B, who makes a run towards the box.”
        - Output: “What a fantastic build-up from the midfield as Player A spots Player B’s run. The crowd is on their feet as Player B charges into the box!”
 
-#### 5. **Advanced Commentary Features**
+### 5. **Advanced Commentary Features**
    - **Personalized Commentary**: Tailor commentary based on specific players (e.g., star players) or team strategies.
      - If a particular player is underperforming or excelling in comparison to previous matches, the LLM can inject that context.
      - **Example**: “This is vintage Player X, returning to form after a quiet first half, putting immense pressure on the defense.”
@@ -72,7 +72,7 @@
    - **Emotion and Drama**: The LLM can bring in the emotional weight of the moment—especially in big matches or pivotal moments.
      - **Example**: “Unbelievable! In the dying seconds of the match, Player Z scores a wonder goal, and the stadium erupts in pure euphoria!”
 
-#### 6. **Additional Insights Using LLM**
+### 6. **Additional Insights Using LLM**
    Beyond just play-by-play commentary, you can add extra layers of insights:
    - **Statistical Insights**: As the match progresses, the LLM could inject statistics into the commentary, based on data (e.g., possession time, passing accuracy).
      - **Example**: “Player X has completed 90% of their passes today—an outstanding performance in the middle of the park.”
