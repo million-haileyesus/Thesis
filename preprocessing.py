@@ -38,7 +38,7 @@ class PreProcessing:
 
     def load_and_process_data(
             self, add_ball: bool = True, add_headers: bool = True,
-            half_period: int = 1, remove_ball_na: bool = True
+            half_period: int = 1, remove_ball_nan: bool = True
     ) -> pd.DataFrame:
         """
         Load and process match data from both teams.
@@ -52,48 +52,65 @@ class PreProcessing:
         Returns:
             Processed DataFrame combining both teams' data
         """
-        df_home = pd.read_csv(self.data_home_path, low_memory=False)
-        df_away = pd.read_csv(self.data_away_path, low_memory=False)
+        if half_period not in (1, 2):
+            raise ValueError("half_period must be either 1 or 2")
+            
+        original_df_home = pd.read_csv(self.data_home_path, low_memory=False)
+        original_df_away = pd.read_csv(self.data_away_path, low_memory=False)
+
+        df_home = self._remove_headers(original_df_home)
+        df_away = self._remove_headers(original_df_away)
 
         if add_ball:
-            df_home = self._add_ball_data(df_home)
-            df_away = self._add_ball_data(df_away)
+            ball = pd.concat([pd.to_numeric(original_df_home["Unnamed: 31"], errors='coerce'), 
+                              pd.to_numeric(original_df_home["Unnamed: 32"], errors='coerce')], axis=1).iloc[2:]
+            ball.index = range(1, len(ball) + 1)
+            df_home = self._add_ball_data(df_home, ball)
+            df_away = self._add_ball_data(df_away, ball)
 
         if add_headers:
-            df_home.columns = self._generate_headers(team="Home", start=2, end=12)
-            df_away.columns = self._generate_headers(team="Away", start=12, end=23)
+            df_home.columns = self._generate_headers(team="Home", add_ball=add_ball, start=2, end=12)
+            df_away.columns = self._generate_headers(team="Away", add_ball=add_ball, start=12, end=23)
 
-            df_home = self._convert_to_numeric(df_home)
-            df_away = self._convert_to_numeric(df_away)
+        df_home = self._convert_to_numeric(df_home)
+        df_away = self._convert_to_numeric(df_away)
 
-        if remove_ball_na:
-            df_home = self._filter_nan_data(df_home, half_period, remove_ball_na)
-            df_away = self._filter_nan_data(df_away, half_period, remove_ball_na)
+        df_home = df_home[df_home["Period"] == half_period]
+        df_away = df_away[df_away["Period"] == half_period]
 
-        home_away_data = self._merge_team_data(df_home, df_away)
+        if add_ball:
+            df_home = self._filter_nan_data(df_home, remove_ball_nan)
+            df_away = self._filter_nan_data(df_away, remove_ball_nan)
+
+        home_away_data = self._merge_team_data(df_home, df_away, add_ball)
 
         return home_away_data
 
-    def _add_ball_data(self, dataset: pd.DataFrame) -> pd.DataFrame:
+    def _remove_headers(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        temp_data = copy.deepcopy(dataset)
+        temp_data = temp_data.iloc[2:, :-2].reset_index(drop=True)
+        columns_to_drop = temp_data.columns[(temp_data.iloc[0].isna())]
+        temp_data = temp_data.drop(columns=columns_to_drop)
+        temp_data.index = range(1, len(temp_data) + 1)
+        
+        return temp_data
+
+    def _add_ball_data(self, dataset: pd.DataFrame, ball_data: pd.DataFrame) -> pd.DataFrame:
         """
-        Process and add ball tracking data to the dataset.
+        Addind ball tracking data to the dataset.
 
         Args:
-            dataset: Input DataFrame containing raw tracking data
+            dataset: Input DataFrame containing raw player tracking data
+            ball_data: Input DataFrame containing raw ball tracking data
 
         Returns:
             DataFrame with processed ball data
         """
-        dataset = dataset.iloc[2:].reset_index(drop=True)
-        last, bef_last = dataset.columns[-2:]
-        dataset.rename(columns={last: "ball-x", bef_last: "ball-y"}, inplace=True)
-        columns_to_drop = dataset.columns[(dataset.iloc[0].isna()) & (~dataset.columns.isin(["ball-x", "ball-y"]))]
-        dataset = dataset.drop(columns=columns_to_drop)
-        dataset.index = range(1, len(dataset) + 1)
+        result = pd.concat([dataset, ball_data], axis=1)
 
-        return dataset
+        return result
 
-    def _generate_headers(self, team: str, start: int, end: int) -> list[str]:
+    def _generate_headers(self, team: str, add_ball: bool, start: int, end: int) -> list[str]:
         headers = []
 
         if team == "Home":
@@ -105,19 +122,24 @@ class PreProcessing:
             headers.append(f"{team}-{self.PLAYER_NAMES[player_index]}-x")
             headers.append(f"{team}-{self.PLAYER_NAMES[player_index]}-y")
 
-        headers = ["Period", "Frame", "Time[s]"] + headers + ["ball-x", "ball-y"]
+        headers = ["Period", "Frame", "Time[s]"] + headers
+        if add_ball:
+            headers.extend(["ball-x", "ball-y"])
 
         return headers
 
     def _convert_to_numeric(self, dataset: pd.DataFrame) -> pd.DataFrame:
         temp_data = copy.deepcopy(dataset)
 
-        for col in dataset.columns:
-            temp_data[col] = pd.to_numeric(temp_data[col], errors='coerce')
+        for col in temp_data.columns:
+            if col == "Period" or col == "Frame":
+                temp_data[col] = pd.to_numeric(temp_data[col], errors='coerce').astype("Int64")
+            else:
+                temp_data[col] = pd.to_numeric(temp_data[col], errors='coerce')
 
         return temp_data
 
-    def _filter_nan_data(self, dataset: pd.DataFrame, half_period: int, remove_ball_na: bool) -> pd.DataFrame:
+    def _filter_nan_data(self, dataset: pd.DataFrame, remove_ball_na: bool) -> pd.DataFrame:
         """
         Removing or filling NaN values
 
@@ -129,25 +151,24 @@ class PreProcessing:
         Returns:
             DataFrame with NaN values filled
         """
-        period_data = dataset[dataset["Period"] == half_period]
-
         if remove_ball_na:
             # Dropping the rows where the ball's x-y coordinates are NaN
-            period_data = period_data.dropna(subset=["ball-x", "ball-y"], how="any")
+            period_data = dataset.dropna(subset=["ball-x", "ball-y"], how="any")
         else:
-            period_data = self._fill_nan_with_adjacent_average(period_data)
+            period_data = self._fill_missing_with_interpolation_and_fill(dataset)
 
         return period_data
 
-    def _fill_nan_with_adjacent_average(self, dataset: pd.DataFrame) -> pd.DataFrame: # TODO: fix the name of the function
+    def _fill_missing_with_interpolation_and_fill(self, dataset: pd.DataFrame) -> pd.DataFrame:
         """
-        Fill NaN values using linear interpolation and forward/backward fill.
-
+        Fill NaN values in numeric columns using linear interpolation, 
+        followed by forward and backward filling for remaining NaNs.
+    
         Args:
-            dataset: Input DataFrame
-
+            dataset (pd.DataFrame): Input DataFrame with potential NaN values.
+    
         Returns:
-            DataFrame with NaN values filled
+            pd.DataFrame: DataFrame with NaN values filled.
         """
         # Create a copy of the input DataFrame to avoid modifying the original
         df_filled = dataset.copy()
@@ -160,15 +181,21 @@ class PreProcessing:
 
         return df_filled
 
-    def _merge_team_data(self, df_home: pd.DataFrame, df_away: pd.DataFrame) -> pd.DataFrame:
+    def _merge_team_data(self, df_home: pd.DataFrame, df_away: pd.DataFrame, add_ball: bool) -> pd.DataFrame:
         """Merge home and away team data into a single DataFrame."""
-        return pd.concat([
-            df_home.iloc[:, :-2],  # Exclude ball columns from home
-            df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
-        ], axis=1)
+        if add_ball:
+            return pd.concat([
+                df_home.iloc[:, :-2],  # Exclude ball columns from home
+                df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
+            ], axis=1)
+        else:
+            return pd.concat([
+                df_home.iloc[:, :],
+                df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
+            ], axis=1)
 
-    def player_tracking(self, dataset: pd.DataFrame, players: list[int] = [11], plot_ball: bool = True, use_annotation: bool = False,
-                        sides: list[str] = ["Home"], marker_size: int = 7):
+    def player_tracking(self, dataset: pd.DataFrame, players: list[int] = [11], sides: list[str] = ["Home"], marker_size: int = 7,
+                        plot_ball: bool = True, use_annotation: bool = False):
         fig, ax = mviz.plot_pitch()
         ball_is_not_there = plot_ball
         title = "Player, and Side at each intervals"
@@ -257,4 +284,6 @@ class PreProcessing:
         plt.tight_layout()
         plt.show()
 
-
+game_2_pre = PreProcessing(data_home="Sample_Game_2_RawTrackingData_Home_Team.csv",
+                           data_away="Sample_Game_2_RawTrackingData_Away_Team.csv")
+game_2_data = game_2_pre.load_and_process_data(add_ball=False)
