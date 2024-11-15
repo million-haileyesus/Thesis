@@ -33,6 +33,9 @@ class PreProcessing:
         self.data_away_path = Path(data_away)
         self.config = Config()
 
+        self.colors = self.config.COLOR_MAP
+        self.player_names = self.config.PLAYER_NAMES
+
         self._validate_input_files()
 
     def _validate_input_files(self) -> None:
@@ -137,9 +140,9 @@ class PreProcessing:
 
         for i in range(start, end):
             player_index = i - start + (1 if team == "Home" else 11)
-            player_name = self.config.PLAYER_NAMES[player_index]
-            headers.append(f"{team}-{player_name}-x")
-            headers.append(f"{team}-{player_name}-y")
+            name = self.player_names[player_index]
+            headers.append(f"{team}-{name}-x")
+            headers.append(f"{team}-{name}-y")
 
         headers = ["Period", "Frame", "Time[s]"] + headers
         if add_ball:
@@ -217,7 +220,6 @@ class PreProcessing:
                         plot_ball: bool = True, use_annotation: bool = False):
         fig, ax = mviz.plot_pitch()
         ball_is_not_there = plot_ball
-        color_map = self.config.COLOR_MAP
 
         title = "Player, and Side at each intervals"
         if use_annotation:
@@ -239,7 +241,7 @@ class PreProcessing:
             positions_x = mio.to_metric_coordinates(positions_x)
             positions_y = mio.to_metric_coordinates(positions_y)
 
-            color = color_map[i % len(color_map)]
+            color = self.colors[i % len(self.colors)]
 
             # Plot player movement with arrows
             for j in range(len(positions_x) - 1):
