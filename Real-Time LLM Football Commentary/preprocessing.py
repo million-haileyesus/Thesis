@@ -46,14 +46,14 @@ class PreProcessing:
             raise FileNotFoundError(f"Away team data file not found: {self.data_away_path}")
 
     def load_and_process_data(
-            self, add_ball: bool = True, add_headers: bool = True,
+            self, add_ball_data: bool = True, add_headers: bool = True,
             half_period: int = 1, remove_ball_nan: bool = True
     ) -> pd.DataFrame:
         """
         Load and process match data from both teams.
 
         Args:
-            add_ball: Whether to add ball tracking data
+            add_ball_data: Whether to add ball tracking data
             add_headers: Whether to add customized column headers
             half_period: Which half of the match to process (1 or 2)
             remove_ball_nan: Whether to remove rows with missing ball data
@@ -71,7 +71,7 @@ class PreProcessing:
         df_home = self._remove_headers(original_df_home)
         df_away = self._remove_headers(original_df_away)
 
-        if add_ball:
+        if add_ball_data:
             ball = pd.concat([pd.to_numeric(original_df_home["Unnamed: 31"], errors='coerce'),
                               pd.to_numeric(original_df_home["Unnamed: 32"], errors='coerce')], axis=1).iloc[2:]
             ball.index = range(1, len(ball) + 1)
@@ -79,8 +79,8 @@ class PreProcessing:
             df_away = self._add_ball_data(df_away, ball)
 
         if add_headers:
-            df_home.columns = self._generate_headers(team="Home", add_ball=add_ball, start=2, end=12)
-            df_away.columns = self._generate_headers(team="Away", add_ball=add_ball, start=12, end=23)
+            df_home.columns = self._generate_headers(team="Home", add_ball_data=add_ball_data, start=2, end=12)
+            df_away.columns = self._generate_headers(team="Away", add_ball_data=add_ball_data, start=12, end=23)
 
         df_home = self._convert_to_numeric(df_home)
         df_away = self._convert_to_numeric(df_away)
@@ -88,11 +88,11 @@ class PreProcessing:
         df_home = df_home[df_home["Period"] == half_period]
         df_away = df_away[df_away["Period"] == half_period]
 
-        if add_ball:
+        if add_ball_data:
             df_home = self._filter_nan_data(df_home, remove_ball_nan)
             df_away = self._filter_nan_data(df_away, remove_ball_nan)
 
-        home_away_data = self._merge_team_data(df_home, df_away, add_ball)
+        home_away_data = self._merge_team_data(df_home, df_away, add_ball_data)
 
         return home_away_data
 
@@ -132,7 +132,7 @@ class PreProcessing:
 
         return result
 
-    def _generate_headers(self, team: str, add_ball: bool, start: int, end: int) -> list[str]:
+    def _generate_headers(self, team: str, add_ball_data: bool, start: int, end: int) -> list[str]:
         headers = []
 
         if team == "Home":
@@ -145,7 +145,7 @@ class PreProcessing:
             headers.append(f"{team}-{name}-y")
 
         headers = ["Period", "Frame", "Time[s]"] + headers
-        if add_ball:
+        if add_ball_data:
             headers.extend(["ball-x", "ball-y"])
 
         return headers
@@ -203,9 +203,9 @@ class PreProcessing:
 
         return df_filled
 
-    def _merge_team_data(self, df_home: pd.DataFrame, df_away: pd.DataFrame, add_ball: bool) -> pd.DataFrame:
+    def _merge_team_data(self, df_home: pd.DataFrame, df_away: pd.DataFrame, add_ball_data: bool) -> pd.DataFrame:
         """Merge home and away team data into a single DataFrame."""
-        if add_ball:
+        if add_ball_data:
             return pd.concat([
                 df_home.iloc[:, :-2],  # Exclude ball columns from home
                 df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
