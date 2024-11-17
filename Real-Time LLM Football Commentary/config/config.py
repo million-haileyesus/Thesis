@@ -19,5 +19,4 @@ class Config:
     )
     BALL_POSSESSION_SPEED: float = 0.05
     MPS_TO_MPH: float = 2.23694
-    PLAYER_NAMES: list[str] = ("P_1", "P_2", "P_3", "P_4", "P_5", "P_6", "P_7", "P_8", "P_9", "P_10", "P_11", "P_25",
-                               "P_15", "P_16", "P_17", "P_18", "P_19", "P_20", "P_21", "P_22", "P_23", "P_24")
+

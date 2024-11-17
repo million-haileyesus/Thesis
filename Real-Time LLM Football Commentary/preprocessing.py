@@ -47,7 +47,7 @@ class PreProcessing:
 
     def load_and_process_data(
             self, add_ball_data: bool = True, add_headers: bool = True,
-            half_period: int = 1, remove_ball_nan: bool = True
+            half_period: str | int = 1, remove_ball_nan: bool = True
     ) -> pd.DataFrame:
         """
         Load and process match data from both teams.
@@ -55,15 +55,13 @@ class PreProcessing:
         Args:
             add_ball_data: Whether to add ball tracking data
             add_headers: Whether to add customized column headers
-            half_period: Which half of the match to process (1 or 2)
+            half_period: Which half of the match to process (1, 2, or both)
             remove_ball_nan: Whether to remove rows with missing ball data
 
         Returns:
             Processed DataFrame combining both teams' data
         """
         self._validate_parameters(half_period)
-        if half_period not in (1, 2):
-            raise ValueError("half_period must be either 1 or 2")
 
         original_df_home = self._read_file(self.data_home_path)
         original_df_away = self._read_file(self.data_away_path)
@@ -71,22 +69,26 @@ class PreProcessing:
         df_home = self._remove_headers(original_df_home)
         df_away = self._remove_headers(original_df_away)
 
+        df_subs_home = self.get_subs(original_df_home)
+        df_subs_away = self.get_subs(original_df_away)
+
         if add_ball_data:
-            ball = pd.concat([pd.to_numeric(original_df_home["Unnamed: 31"], errors='coerce'),
-                              pd.to_numeric(original_df_home["Unnamed: 32"], errors='coerce')], axis=1).iloc[2:]
-            ball.index = range(1, len(ball) + 1)
-            df_home = self._add_ball_data(df_home, ball)
-            df_away = self._add_ball_data(df_away, ball)
+            df_home = self._add_ball_data(original_df_home, df_home)
+            df_away = self._add_ball_data(original_df_away, df_away)
 
         if add_headers:
-            df_home.columns = self._generate_headers(team="Home", add_ball_data=add_ball_data, start=2, end=12)
-            df_away.columns = self._generate_headers(team="Away", add_ball_data=add_ball_data, start=12, end=23)
+            df_home.columns = self._generate_headers(dataset=df_home, team="Home", add_ball_data=add_ball_data)
+            df_away.columns = self._generate_headers(dataset=df_away, team="Away", add_ball_data=add_ball_data)
+            df_subs_home.columns = self._generate_headers(dataset=df_subs_home, team="Home", add_ball_data=add_ball_data)
+            df_subs_away.columns = self._generate_headers(dataset=df_subs_away, team="Away", add_ball_data=add_ball_data)
 
         df_home = self._convert_to_numeric(df_home)
         df_away = self._convert_to_numeric(df_away)
+        df_subs_home = self._convert_to_numeric(df_subs_home)
+        df_subs_away = self._convert_to_numeric(df_subs_away)
 
-        df_home = df_home[df_home["Period"] == half_period]
-        df_away = df_away[df_away["Period"] == half_period]
+        df_home = self._choose_halfs(df_home, df_subs_home, half_period)
+        df_away = self._choose_halfs(df_away, df_subs_away, half_period)
 
         if add_ball_data:
             df_home = self._filter_nan_data(df_home, remove_ball_nan)
@@ -98,8 +100,8 @@ class PreProcessing:
 
     def _validate_parameters(self, half_period: int) -> None:
         """Validate input parameters."""
-        if half_period not in (1, 2):
-            raise ValueError("half_period must be either 1 or 2")
+        if half_period not in (1, 2, "both"):
+            raise ValueError("half_period must be either 1, 2 or both")
 
     def _read_file(self, file_path: Path) -> pd.DataFrame:
         """Read a single team's data file."""
@@ -109,44 +111,54 @@ class PreProcessing:
             raise DataValidationError(f"Error reading {file_path}: {str(e)}")
 
     def _remove_headers(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        temp_data = copy.deepcopy(dataset)
-        temp_data = temp_data.iloc[2:, :-2].reset_index(drop=True)
-        columns_to_drop = temp_data.columns[(temp_data.iloc[0].isna())]
+        temp_data = dataset.iloc[2:].reset_index(drop=True)
+        temp_data.columns = dataset.iloc[1].values
+        temp_data = temp_data.drop(columns=temp_data.columns[25:])
+        temp_data.index = range(1, len(temp_data) + 1)
+
+        return temp_data
+
+    def get_subs(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        temp_data = dataset.iloc[2:].reset_index(drop=True)
+        temp_data.columns = dataset.iloc[1].values
+        columns_to_drop = list(temp_data.columns[3:25]) + list(temp_data.columns[-2:])
         temp_data = temp_data.drop(columns=columns_to_drop)
         temp_data.index = range(1, len(temp_data) + 1)
 
         return temp_data
 
-    def _add_ball_data(self, dataset: pd.DataFrame, ball_data: pd.DataFrame) -> pd.DataFrame:
+    def _add_ball_data(self, original_dataset: pd.DataFrame, player_dataset: pd.DataFrame) -> pd.DataFrame:
         """
         Addind ball tracking data to the dataset.
 
         Args:
-            dataset: Input DataFrame containing raw player tracking data
-            ball_data: Input DataFrame containing raw ball tracking data
+            original_dataset: Input DataFrame containing all the data
+            player_dataset: Input DataFrame containing raw player tracking data
 
         Returns:
             DataFrame with processed ball data
         """
-        result = pd.concat([dataset, ball_data], axis=1)
+        ball = pd.concat([pd.to_numeric(original_dataset.iloc[:, -2], errors='coerce'),
+                          pd.to_numeric(original_dataset.iloc[:, -1], errors='coerce')], axis=1).iloc[2:]
+        ball.index = range(1, len(ball) + 1)
+
+        result = pd.concat([player_dataset, ball], axis=1)
 
         return result
 
-    def _generate_headers(self, team: str, add_ball_data: bool, start: int, end: int) -> list[str]:
-        headers = []
+    def _generate_headers(self, dataset: pd.DataFrame, team: str, add_ball_data: bool) -> list[str]:
+        columns = list(dataset.columns)
+        headers = columns[:3]
 
-        if team == "Home":
-            headers.extend([f"{team}-P_1-x", f"{team}-P_1-y"])
+        end = len(columns) if len(columns) < 25 else 25     # This part is for add the ball
+        for i in range(3, end):
+            if isinstance(columns[i], str):
+                headers.append(f"{team}-{columns[i]}-x")
+            else:
+                headers.append(f"{team}-{columns[i - 1]}-y")
 
-        for i in range(start, end):
-            player_index = i - start + (1 if team == "Home" else 11)
-            name = self.player_names[player_index]
-            headers.append(f"{team}-{name}-x")
-            headers.append(f"{team}-{name}-y")
-
-        headers = ["Period", "Frame", "Time[s]"] + headers
         if add_ball_data:
-            headers.extend(["ball-x", "ball-y"])
+            headers.extend(["Ball-x", "Ball-y"])
 
         return headers
 
@@ -160,6 +172,30 @@ class PreProcessing:
                 temp_data[col] = pd.to_numeric(temp_data[col], errors='coerce')
 
         return temp_data
+
+    def _choose_halfs(self, dataset: pd.DataFrame, subs_dataset: pd.DataFrame, half_period: str | int = 1) -> pd.DataFrame:
+        temp_data = copy.deepcopy(dataset)
+
+        if half_period == 2 or (isinstance(half_period, str) and half_period.lower() == "both"):
+            self._replace_subs(temp_data, subs_dataset)
+        else:
+            temp_data = temp_data[temp_data["Period" == half_period]]
+
+        return temp_data
+
+    def _replace_subs(self, dataset: pd.DataFrame, subs_dataset: pd.DataFrame) -> pd.DataFrame:
+        for i in range(3, dataset.shape[1]):
+            idxs = dataset[dataset.iloc[:, i].isna()].index
+            if idxs.shape[0] > 0:
+                x = idxs[0]
+                for j in range(3, subs_dataset.shape[1]):
+                    d_col = dataset.columns[i]
+                    s_col = subs_dataset.columns[j]
+                    if dataset.loc[x - 1, d_col] == subs_dataset.loc[x - 1, s_col]:
+                        dataset.loc[idxs, d_col] = subs_dataset.loc[idxs, s_col]
+                        break
+
+        return dataset
 
     def _filter_nan_data(self, dataset: pd.DataFrame, remove_ball_na: bool) -> pd.DataFrame:
         """
@@ -226,8 +262,8 @@ class PreProcessing:
             title = "Player, and Frame at each intervals"
 
         for i, (player, side) in enumerate(zip(players, sides)):
-            x = f"{side}-P_{player}-x"
-            y = f"{side}-P_{player}-y"
+            x = f"{side}-Player{player}-x"
+            y = f"{side}-Player{player}-y"
 
             # Prepare player positions and their coordinates on the pitch
             data_x = pd.to_numeric(dataset[x], errors='coerce')
