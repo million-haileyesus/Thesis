@@ -34,7 +34,6 @@ class PreProcessing:
         self.config = Config()
 
         self.colors = self.config.COLOR_MAP
-        self.player_names = self.config.PLAYER_NAMES
 
         self._validate_input_files()
 
@@ -333,8 +332,8 @@ class PreProcessing:
 
         ball_is_not_there = False
 
-        start_seconds = dataset["Time[s]"].iloc[0]
-        end_seconds = dataset["Time[s]"].iloc[-1]
+        start_seconds = dataset["Time [s]"].iloc[0]
+        end_seconds = dataset["Time [s]"].iloc[-1]
         pl = [i for i in players]
         ax.set_title(
             f"Tracking for Player {pl} in the First Half from {start_seconds} seconds to {end_seconds} seconds")
