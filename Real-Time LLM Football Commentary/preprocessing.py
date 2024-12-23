@@ -79,7 +79,7 @@ class PreProcessing:
             df_away = self._add_ball_data(original_df_away, df_away)
 
             df_subs_home = self._add_ball_data(original_df_home, df_subs_home)
-            df_subs_away = self._add_ball_data(original_df_home, df_subs_home)
+            df_subs_away = self._add_ball_data(original_df_away, df_subs_away)
 
         if add_headers:
             df_home.columns = self._generate_headers(dataset=df_home, team="Home", add_ball_data=add_ball_data)
@@ -161,7 +161,7 @@ class PreProcessing:
         if add_ball_data:
             e -= 2
 
-        end = e if len(columns) < 25 else 25     # This part is for add the ball
+        end = e if len(columns) < 25 else 25  # This part is for add the ball
         for i in range(3, end):
             if isinstance(columns[i], str):
                 headers.append(f"{team}-{columns[i]}-x")
@@ -230,12 +230,12 @@ class PreProcessing:
 
     def _fill_missing_with_interpolation_and_fill(self, dataset: pd.DataFrame) -> pd.DataFrame:
         """
-        Fill NaN values in numeric columns using linear interpolation, 
+        Fill NaN values in numeric columns using linear interpolation,
         followed by forward and backward filling for remaining NaNs.
-    
+
         Args:
             dataset (pd.DataFrame): Input DataFrame with potential NaN values.
-    
+
         Returns:
             pd.DataFrame: DataFrame with NaN values filled.
         """
@@ -250,18 +250,53 @@ class PreProcessing:
 
         return df_filled
 
-    def _merge_team_data(self, df_home: pd.DataFrame, df_away: pd.DataFrame, add_ball_data: bool) -> pd.DataFrame:
+    def _merge_team_data(self, data_home: pd.DataFrame, data_away: pd.DataFrame, add_ball_data: bool) -> pd.DataFrame:
         """Merge home and away team data into a single DataFrame."""
         if add_ball_data:
             return pd.concat([
-                df_home.iloc[:, :-2],  # Exclude ball columns from home
-                df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
+                data_home.iloc[:, :-2],  # Exclude ball columns from home
+                data_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
             ], axis=1)
         else:
             return pd.concat([
-                df_home.iloc[:, :],
-                df_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
+                data_home.iloc[:, :],
+                data_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
             ], axis=1)
+
+    def expand_dataset(self, dataset: pd.DataFrame | pd.Series, look_back: int = 5) -> pd.DataFrame:
+        """
+        Expands the given dataset by creating overlapping windows of data points for a specified look-back period.
+
+        Args:
+            dataset (pd.DataFrame): The input dataset to expand.
+            look_back (int): The number of past observations to include in each window. Default is 5.
+
+        Returns:
+            pd.DataFrame: The expanded dataset with overlapping windows.
+        """
+
+        if look_back < 1 or look_back >= len(dataset):
+            raise ValueError(f"look_back must be between 1 and {len(dataset) - 1}.")
+
+        data = dataset.values
+        if data.ndim == 1:
+            data = data[:, None]
+            
+        indices = np.arange(len(dataset) - look_back)[:, None] + np.arange(look_back + 1)
+        
+        sequences = data[indices]
+
+        if isinstance(dataset, pd.Series):
+            columns = [dataset.name] if dataset.name is not None else [0]
+        else:
+            columns = dataset.columns
+        
+        expanded_df = pd.DataFrame(
+            sequences.reshape(-1, data.shape[1]), 
+            columns=columns
+        )
+        
+        return expanded_df
 
     def vel_acc(self, dataset: pd.DataFrame) -> pd.DataFrame:
         """
@@ -287,15 +322,14 @@ class PreProcessing:
             # Calculate time difference between frames
             time_diff = temp_data["Time [s]"].diff()
 
-            # Calculate velocity (distance travelled / time)
-            vx = x_diff / time_diff
-            vy = y_diff / time_diff
-            velocity = np.sqrt(vx ** 2 + vy ** 2)
+            # Distance calculation
+            distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
 
-            # Calculate acceleration (change in velocity / time)
-            ax = vx.diff() / time_diff
-            ay = vy.diff() / time_diff
-            acceleration = np.sqrt(ax ** 2 + ay ** 2)
+            # Velocity calculation
+            velocity = distance / time_diff
+
+            # Acceleration calculation
+            acceleration = velocity.diff() / time_diff
 
             if "Ball" in ply_x:
                 temp_data[f"Ball_velocity"] = velocity
@@ -311,37 +345,52 @@ class PreProcessing:
         return temp_data
 
     def get_frames(self, dataset: pd.DataFrame, columns: list[int], frame: int, frame_interval: int = 5000) -> pd.DataFrame:
-        start_range = dataset.index[0] if frame - frame_interval < dataset.index[0] else frame - frame_interval
-        end_range = (dataset.index[-1] if frame + frame_interval > dataset.index[-1] else frame + frame_interval) + 1
-
-        index = pd.RangeIndex(start=start_range, stop=end_range, step=1)
-        temp_data = pd.DataFrame(index=index)
-        # temp_data["Time[s]"] = dataset["Time[s]"]
+        """
+        Extracts frame data for ball and players within a specified interval.
+        
+        Args:
+            dataset (pd.DataFrame): Input DataFrame containing tracking data
+            columns (list[int]): List of column indices to process
+            frame (int): Center frame number
+            frame_interval (int): Number of frames to include before and after center frame
+        
+        Returns:
+            pd.DataFrame: DataFrame containing positions, velocities, and accelerations
+        """
+        # Calculate frame range
+        start_range = max(dataset.index[0], frame - frame_interval)
+        end_range = min(dataset.index[-1], frame + frame_interval)
+        
+        # Initialize DataFrame with proper index
+        temp_data = pd.DataFrame(index=dataset.loc[start_range:end_range].index)
 
         for col in columns:
             if "ball" in str(col).lower():
-                temp_data["Ball-x"] = dataset.loc[start_range:end_range, f"{col[:4]}-x"]
-                temp_data["Ball-y"] = dataset.loc[start_range:end_range, f"{col[:4]}-y"]
+                ball_prefix = col[:4]
+                temp_data["Ball-x"] = dataset.loc[start_range:end_range, f"{ball_prefix}-x"]
+                temp_data["Ball-y"] = dataset.loc[start_range:end_range, f"{ball_prefix}-y"]
 
                 temp_data["Ball_velocity"] = dataset.loc[start_range:end_range, "Ball_velocity"]
                 temp_data["Ball_acceleration"] = dataset.loc[start_range:end_range, "Ball_acceleration"]
             else:
-                players_num = col[11]
-                if len(col) == 15:
-                    players_num = col[11:13]
-                players_num = int(players_num)
+                player_num = col[11]
+                if len(str(col)) == 15:
+                    player_num = col[11:13]
 
-                if int(players_num) < 15:
-                    # The index is the same as frames
-                    temp_data[f"Home-Player{players_num}-x"] = dataset.loc[start_range:end_range, f"Home-Player{players_num}-x"]
-                    temp_data[f"Home-Player{players_num}-y"] = dataset.loc[start_range:end_range, f"Home-Player{players_num}-y"]
+                player_num = int(player_num)
+
+                if player_num < 15:
+                    prefix = "Home"
                 else:
-                    # The index is the same as frames
-                    temp_data[f"Away-Player{players_num}-x"] = dataset.loc[start_range:end_range, f"Away-Player{players_num}-x"]
-                    temp_data[f"Away-Player{players_num}-y"] = dataset.loc[start_range:end_range, f"Away-Player{players_num}-y"]
+                    prefix = "Away"
 
-                temp_data[f"P_{players_num}_velocity"] = dataset.loc[start_range:end_range, f"P_{players_num}_velocity"]
-                temp_data[f"P_{players_num}_acceleration"] = dataset.loc[start_range:end_range, f"P_{players_num}_acceleration"]
+                    # Add player position data
+                temp_data[f"{prefix}-Player{player_num}-x"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-x"]
+                temp_data[f"{prefix}-Player{player_num}-y"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-y"]
+
+                # Add player movement data
+                temp_data[f"P_{player_num}_velocity"] = dataset.loc[start_range:end_range, f"P_{player_num}_velocity"]
+                temp_data[f"P_{player_num}_acceleration"] = dataset.loc[start_range:end_range, f"P_{player_num}_acceleration"]
 
         return temp_data
 
@@ -376,6 +425,7 @@ class PreProcessing:
             for j in range(len(positions_x) - 1):
                 dx = positions_x[x].iloc[j + 1] - positions_x[x].iloc[j]
                 dy = positions_y[y].iloc[j + 1] - positions_y[y].iloc[j]
+
                 if abs(dx) > 0.1 or abs(dy) > 0.1:  # Only draw arrows for significant movements
                     ax.arrow(positions_x[x].iloc[j], positions_y[y].iloc[j], dx, dy, head_width=1.2, head_length=1.2,
                              fc=color, ec=color, linestyle="dotted", length_includes_head=True)
