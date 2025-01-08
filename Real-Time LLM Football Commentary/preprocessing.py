@@ -29,8 +29,8 @@ class PreProcessing:
         self.data_home_path = None
         self.data_away_path = None
 
-        self.config = Config()
-        self.colors = self.config.COLOR_MAP
+        self._config = Config()
+        self._colors = self._config.COLOR_MAP
 
     def _validate_input_files(self) -> None:
         """Validate that input files exist and are readable."""
@@ -42,7 +42,7 @@ class PreProcessing:
     def load_and_process_data(
             self, data_home: str | Path, data_away: str | Path,
             add_ball_data: bool = True, add_headers: bool = True,
-            half_period: str | int = 1, remove_ball_nan: bool = True
+            half_period: str | int = "both", remove_ball_nan: bool = True
     ) -> pd.DataFrame:
         """
         Load and process match data from both teams.
@@ -208,19 +208,19 @@ class PreProcessing:
 
         return dataset
 
-    def _filter_nan_data(self, dataset: pd.DataFrame, remove_ball_na: bool) -> pd.DataFrame:
+    def _filter_nan_data(self, dataset: pd.DataFrame, remove_ball_nan: bool) -> pd.DataFrame:
         """
         Removing or filling NaN values
 
         Args:
             dataset: Input DataFrame with missing values
             half_period: Which half of the match to process (1 or 2)
-            remove_ball_na: Whether to remove rows with missing ball data
+            remove_ball_nan: Whether to remove rows with missing ball data
 
         Returns:
             DataFrame with NaN values filled
         """
-        if remove_ball_na:
+        if remove_ball_nan:
             # Dropping the rows where the ball's x-y coordinates are NaN
             period_data = dataset.dropna(subset=["Ball-x", "Ball-y"], how="any")
         else:
@@ -344,7 +344,51 @@ class PreProcessing:
 
         return temp_data
 
-    def get_frames(self, dataset: pd.DataFrame, columns: list[int], frame: int, frame_interval: int = 5000) -> pd.DataFrame:
+    def vel_dir(self, dataset: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculates the velocity and direction of players and ball in a given dataset.
+    
+        Parameters:
+        dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+
+        Returns:
+        pandas.DataFrame: The original dataset with additional columns for velocity and direction.
+        """
+        temp_data = copy.deepcopy(dataset)
+        start_idx = temp_data.columns.get_loc("Time [s]")
+        player_columns = temp_data.columns[start_idx + 1:]
+    
+        for i in range(0, player_columns.shape[0] - 1, 2):
+            # Calculate Euclidean distance between consecutive points
+            ply_x, ply_y = player_columns[i], player_columns[i + 1]
+            
+            x_diff = temp_data[ply_x].diff()
+            y_diff = temp_data[ply_y].diff()
+
+            distance = np.sqrt(x_diff**2 + y_diff**2)
+            
+            # Calculate time difference between frames
+            time_diff = temp_data["Time [s]"].diff()
+            
+            # Calculate speed (distance / time)
+            # Note: First row will be NaN as we can't calculate speed for a single point
+            velocity = distance / time_diff
+            direction = np.arctan2(x_diff, y_diff)
+    
+            if "ball" in str(ply_x).lower():
+                temp_data[f"Ball_velocity"] = velocity
+                temp_data[f"Ball_direction"] = direction
+            else:
+                players_num = ply_x[11]
+                if len(ply_x) == 15:
+                    players_num = ply_x[11:13]
+    
+                temp_data[f"P_{players_num}_velocity"] = velocity
+                temp_data[f"P_{players_num}_direction"] = direction
+    
+        return temp_data
+
+    def get_frames(self, dataset: pd.DataFrame, columns: list[int], frame: int = 1000000, frame_interval: int = 1000000, feature="acceleration") -> pd.DataFrame:
         """
         Extracts frame data for ball and players within a specified interval.
         
@@ -371,7 +415,7 @@ class PreProcessing:
                 temp_data["Ball-y"] = dataset.loc[start_range:end_range, f"{ball_prefix}-y"]
 
                 temp_data["Ball_velocity"] = dataset.loc[start_range:end_range, "Ball_velocity"]
-                temp_data["Ball_acceleration"] = dataset.loc[start_range:end_range, "Ball_acceleration"]
+                temp_data[f"Ball_{feature}"] = dataset.loc[start_range:end_range, f"Ball_{feature}"]
             else:
                 player_num = col[11]
                 if len(str(col)) == 15:
@@ -390,7 +434,7 @@ class PreProcessing:
 
                 # Add player movement data
                 temp_data[f"P_{player_num}_velocity"] = dataset.loc[start_range:end_range, f"P_{player_num}_velocity"]
-                temp_data[f"P_{player_num}_acceleration"] = dataset.loc[start_range:end_range, f"P_{player_num}_acceleration"]
+                temp_data[f"P_{player_num}_{feature}"] = dataset.loc[start_range:end_range, f"P_{player_num}_{feature}"]
 
         return temp_data
 
