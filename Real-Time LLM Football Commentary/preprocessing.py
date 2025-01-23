@@ -438,8 +438,11 @@ class PreProcessing:
 
         return temp_data
 
-    def player_tracking(self, dataset: pd.DataFrame, players: list[int] = [11], sides: list[str] = ["Home"], marker_size: int = 7,
-                        plot_ball: bool = True, use_annotation: bool = False):
+    def player_visualization(
+            self, dataset: pd.DataFrame, players: list[int] = [11], 
+            sides: list[str] = ["Home"], marker_size: int = 7,
+            plot_ball: bool = True, use_annotation: bool = False
+    ) -> None:
         fig, ax = mviz.plot_pitch()
         ball_is_not_there = plot_ball
 
@@ -463,7 +466,7 @@ class PreProcessing:
             positions_x = mio.to_metric_coordinates(positions_x)
             positions_y = mio.to_metric_coordinates(positions_y)
 
-            color = self.colors[i % len(self.colors)]
+            color = self._colors[i % len(self._colors)]
 
             # Plot player movement with arrows
             for j in range(len(positions_x) - 1):
