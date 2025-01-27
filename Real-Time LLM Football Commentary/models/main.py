@@ -1,0 +1,45 @@
+from .lstm import LSTM
+from .neural_network import NeuralNetwork
+from .optimizer_utils import get_optimizer, get_scheduler
+from .train_utils import train_one_epoch, validate_one_epoch
+
+
+def get_model(model_name, nn_params=None, lstm_params=None):
+    if model_name.lower() == "nn":
+        if nn_params is None:
+            raise ValueError("Parameters for 'NeuralNetwork' must be provided in nn_params.")
+        return NeuralNetwork(**nn_params)
+    elif model_name.lower() == "lstm":
+        if lstm_params is None:
+            raise ValueError("Parameters for 'RecurrentNeuralNetwork' must be provided in rnn_params.")
+        return LSTM(**lstm_params)
+    else:
+        raise ValueError("Unsupported model type. Use 'nn' or 'lstm'.")
+
+
+def train_model(model, train_loader, validation_loader, epochs, optimizer_name, criterion, learning_rate, device, is_sequence_model=False):
+    optimizer = get_optimizer(optimizer_name, model.parameters(), learning_rate)
+    scheduler = get_scheduler(optimizer)
+    
+    history = {"training_accuracy": [], "validation_accuracy": []}
+
+    for epoch in range(epochs):
+        train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device, is_sequence_model=is_sequence_model)
+        val_loss, val_acc, val_metrics = validate_one_epoch(model, validation_loader, criterion, device, is_sequence_model=is_sequence_model)
+
+        history["training_accuracy"].append(train_acc)
+        history["validation_accuracy"].append(val_acc)
+
+        l_rate = optimizer.param_groups[0]["lr"]
+        if scheduler:
+            scheduler.step(val_loss)
+ 
+        print(f"Epoch {epoch + 1}/{epochs}: "
+              f"Train accuracy: {train_acc * 100:.2f}% | "
+              f"Val accuracy: {val_acc * 100:.2f}% | "
+              f"Train loss: {train_loss:.4f} | "
+              f"Val loss: {val_loss:.4f} | "
+              f"learning rate: {l_rate:.6f} | " 
+              f"Precision: {val_metrics['precision'] * 100:.2f}% | Recall: {val_metrics['recall'] * 100:.2f}% | F1: {val_metrics['f1'] * 100:.2f}%")
+
+    return history
