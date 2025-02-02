@@ -19,7 +19,9 @@ def get_model(model_name, nn_params=None, lstm_params=None):
 
 def train_model(model, train_loader, validation_loader, epochs, optimizer_name, criterion, learning_rate, device, is_sequence_model=False):
     optimizer = get_optimizer(optimizer_name, model.parameters(), learning_rate)
-    scheduler = get_scheduler(optimizer)
+    scheduler = None
+    if optimizer_name == "sgd":
+        scheduler = get_scheduler(optimizer)
     
     history = {"training_accuracy": [], "validation_accuracy": []}
 
