@@ -2,7 +2,7 @@ import torch
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion, device, is_sequence_model):
+def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_model):
     model.train()
     train_loss = 0.0
     train_acc = 0
@@ -36,7 +36,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_sequen
     return epoch_loss, epoch_accuracy
 
 
-def validate_one_epoch(model, validation_loader, criterion, device, is_sequence_model):
+def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model):
     model.eval()
     val_loss = 0.0
     val_acc = 0
