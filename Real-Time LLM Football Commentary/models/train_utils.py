@@ -14,7 +14,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_mo
         optimizer.zero_grad()
 
         outputs = model(data)
-        if is_sequence_model:
+        if is_seq_model:
             outputs = outputs.permute(0, 2, 1)
 
         loss = criterion(outputs, labels)
@@ -27,7 +27,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_mo
         train_acc += (pred == labels).float().sum().item()
 
     epoch_loss = train_loss / len(train_loader)
-    if is_sequence_model:
+    if is_seq_model:
         sequence_length = data.size(1)
         epoch_accuracy = train_acc / (train_dataset_len * sequence_length)
     else:
@@ -50,7 +50,7 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model
         for data, label in validation_loader:
             data, label = data.to(device), label.to(device)
             outputs = model(data)
-            if is_sequence_model:
+            if is_seq_model:
                 outputs = outputs.permute(0, 2, 1)
 
             loss = criterion(outputs, label)
@@ -63,7 +63,7 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model
             val_labels.extend(label.cpu().numpy().flatten())
 
     epoch_loss = val_loss / len(validation_loader)
-    if is_sequence_model:
+    if is_seq_model:
         sequence_length = data.size(1)
         epoch_accuracy = val_acc / (val_dataset_len * sequence_length)
     else:

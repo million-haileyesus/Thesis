@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, num_classes, num_hidden_layers, dropout_rate, starting_size=2048):
+    def __init__(self, input_size, num_classes, num_hidden_layers, dropout_rate, hidden_size):
         super().__init__()
         self.layers = nn.ModuleList()
         
