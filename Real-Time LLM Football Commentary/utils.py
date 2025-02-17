@@ -1,0 +1,265 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+
+def process_event_data(event_data, full_data):
+    """
+    Process event data to create a DataFrame with event types for each frame.
+    
+    Parameters:
+    -----------
+    event_data : pd.DataFrame
+        DataFrame containing event information with Start Frame, End Frame, and Type columns
+    full_data : pd.DataFrame
+        Complete dataset with all frames
+        
+    Returns:
+    --------
+    pd.DataFrame
+        Processed event data with frame-by-frame event types
+    """
+    start_frames = event_data["Start Frame"].iloc[1:].to_numpy()
+    end_frames = event_data["End Frame"].iloc[1:].to_numpy()
+    event_types = event_data["Type"].iloc[1:].to_numpy()
+    
+    # Validation
+    assert start_frames.shape == end_frames.shape == event_types.shape
+    
+    # Ensure end frames don't exceed data bounds
+    end = full_data.index[-1]
+    end_frames = np.minimum(end_frames, end)
+    
+    # Create frame ranges and unique indices
+    frame_ranges = [np.arange(min(i, j), max(i, j) + 1) 
+                   for i, j in zip(start_frames, end_frames)]
+    unique_indices = np.unique(np.concatenate(frame_ranges))
+    
+    # Create and populate event DataFrame
+    event_df = pd.DataFrame(index=unique_indices, columns=["Type"])
+    for s, e, e_t in zip(start_frames, end_frames, event_types):
+        event_df.loc[s:e, "Type"] = e_t
+    
+    return event_df.dropna()
+
+def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, model_name=""):
+    """
+    Plot confusion matrix and print accuracy scores.
+    
+    Parameters:
+    -----------
+    y_train : array-like
+        True training labels
+    y_train_pred : array-like
+        Predicted training labels
+    y_test : array-like
+        True test labels
+    y_pred : array-like
+        Predicted test labels
+    labels : list
+        List of label names
+    split : int
+        Split number for cross-validation
+    model_name : str, optional
+        Name of the model for plot title
+    """
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    cm_counts = confusion_matrix(y_test, y_pred, labels=labels)
+    cm_normalized = confusion_matrix(y_test, y_pred, labels=labels, normalize="true")
+    
+    # Create annotations with both counts and normalized values
+    annot = [[f"{count} | {norm:.2f}" 
+              for count, norm in zip(row_counts, row_norm)]
+             for row_counts, row_norm in zip(cm_counts, cm_normalized)]
+    
+    sns.heatmap(cm_normalized, 
+                annot=annot,
+                fmt="", 
+                cmap="viridis", 
+                xticklabels=labels, 
+                yticklabels=labels,
+                cbar_kws={"label": "Normalized Frequency"})
+    
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+    ax.set_title(f"{model_name.title()} Confusion Matrix Split #{(split+1)}")
+    plt.tight_layout()
+    plt.show()
+    
+    # Print accuracy scores
+    train_accuracy = accuracy_score(y_train, y_train_pred)
+    test_accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average="weighted", zero_division=0)
+    recall = recall_score(y_test, y_pred, average="weighted", zero_division=0)
+    f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
+
+    print(f"{model_name} training accuracy: {train_accuracy * 100:0.2f}%")
+    print(f"{model_name} testing accuracy: {test_accuracy * 100:0.2f}%\n")   
+    print(f"{model_name} testing precision: {precision * 100:0.2f}%")
+    print(f"{model_name} testing recall: {recall * 100:0.2f}%")
+    print(f"{model_name} testing f1: {f1 * 100:0.2f}%\n\n")
+
+def plot_accuracy_history(history: dict, title: str = ""):
+    """
+    Plot learning curves from training history.
+    
+    Parameters:
+    -----------
+    history : dict
+        Dictionary containing metrics history
+    title : str, optional
+        Title for the plot
+    """
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    for metric, results in history.items():
+        num_epochs = len(results)
+        ax.plot(list(range(1, num_epochs + 1)), results, marker="o", label=metric)
+    
+    ax.set_xlabel("Number of epochs")
+    ax.set_ylabel("Training and validation accuracy")
+    ax.set_title(f"Learning curve for {title}")
+    
+    ax.grid(True)
+    ax.legend()
+    
+    plt.show()
+
+
+def calculate_velocity_acceleration(dataset: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the velocity and acceleration of players and ball in a given dataset.
+
+    Parameters:
+        dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+
+    Returns:
+        pandas.DataFrame: The original dataset with additional columns for velocity and acceleration.
+    """
+    temp_data = dataset.copy()
+    star_idx = temp_data.columns.get_loc("Time [s]")
+    player_columns = temp_data.columns[star_idx + 1:]
+
+    for i in range(0, player_columns.shape[0] - 1, 2):
+        # Calculate Euclidean distance between consecutive points
+        ply_x, ply_y = player_columns[i], player_columns[i + 1]
+
+        x_diff = temp_data[ply_x].diff()
+        y_diff = temp_data[ply_y].diff()
+
+        # Calculate time difference between frames
+        time_diff = temp_data["Time [s]"].diff()
+
+        # Distance calculation
+        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
+
+        # Velocity calculation
+        velocity = distance / time_diff
+
+        # Acceleration calculation
+        acceleration = velocity.diff() / time_diff
+
+        if "Ball" in ply_x:
+            temp_data[f"Ball_velocity"] = velocity
+            temp_data[f"Ball_acceleration"] = acceleration
+        else:
+            players_num = ply_x[11]
+            if len(ply_x) == 15:
+                players_num = ply_x[11:13]
+
+            temp_data[f"P_{players_num}_velocity"] = velocity
+            temp_data[f"P_{players_num}_acceleration"] = acceleration
+
+    return temp_data
+
+def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the velocity and direction of players and ball in a given dataset.
+
+    Parameters:
+        dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+
+    Returns:
+        pandas.DataFrame: The original dataset with additional columns for velocity and direction.
+    """
+    temp_data = dataset.copy()
+    start_idx = temp_data.columns.get_loc("Time [s]")
+    player_columns = temp_data.columns[start_idx + 1:]
+
+    for i in range(0, player_columns.shape[0] - 1, 2):
+        # Calculate Euclidean distance between consecutive points
+        ply_x, ply_y = player_columns[i], player_columns[i + 1]
+        
+        x_diff = temp_data[ply_x].diff()
+        y_diff = temp_data[ply_y].diff()
+
+        distance = np.sqrt(x_diff**2 + y_diff**2)
+        
+        # Calculate time difference between frames
+        time_diff = temp_data["Time [s]"].diff()
+        
+        # Calculate speed (distance / time)
+        # Note: First row will be NaN as we can't calculate speed for a single point
+        velocity = distance / time_diff
+        direction = np.arctan2(x_diff, y_diff)
+
+        if "ball" in str(ply_x).lower():
+            temp_data[f"Ball_velocity"] = velocity
+            temp_data[f"Ball_direction"] = direction
+        else:
+            players_num = ply_x[11]
+            if len(ply_x) == 15:
+                players_num = ply_x[11:13]
+
+            temp_data[f"P_{players_num}_velocity"] = velocity
+            temp_data[f"P_{players_num}_direction"] = direction
+
+    return temp_data
+
+def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 1000000, frame_interval: int = 1000000, feature="acceleration") -> pd.DataFrame:
+    """
+    Extracts frame data for ball and players within a specified interval.
+    
+    Args:
+        dataset (pd.DataFrame): Input DataFrame containing tracking data
+        columns (list[int]): List of column indices to process
+        frame (int): Center frame number
+        frame_interval (int): Number of frames to include before and after center frame
+    
+    Returns:
+        pd.DataFrame: DataFrame containing positions, velocities, and accelerations
+    """
+    # Calculate frame range
+    start_range = max(dataset.index[0], frame - frame_interval)
+    end_range = min(dataset.index[-1], frame + frame_interval)
+    
+    # Initialize DataFrame with proper index
+    temp_data = pd.DataFrame(index=dataset.loc[start_range:end_range].index)
+
+    for col in columns:
+        if "ball" in str(col).lower():
+            ball_prefix = col[:4]
+            temp_data["Ball-x"] = dataset.loc[start_range:end_range, f"{ball_prefix}-x"]
+            temp_data["Ball-y"] = dataset.loc[start_range:end_range, f"{ball_prefix}-y"]
+            temp_data["Ball_velocity"] = dataset.loc[start_range:end_range, "Ball_velocity"]
+            temp_data[f"Ball_{feature}"] = dataset.loc[start_range:end_range, f"Ball_{feature}"]
+        else:
+            player_num = col[11]
+            if len(str(col)) == 15:
+                player_num = col[11:13]
+
+            player_num = int(player_num)
+
+            prefix = "Home" if player_num < 15 else "Away"
+
+                # Add player position data
+            temp_data[f"{prefix}-Player{player_num}-x"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-x"]
+            temp_data[f"{prefix}-Player{player_num}-y"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-y"]
+
+            # Add player movement data
+            temp_data[f"P_{player_num}_velocity"] = dataset.loc[start_range:end_range, f"P_{player_num}_velocity"]
+            temp_data[f"P_{player_num}_{feature}"] = dataset.loc[start_range:end_range, f"P_{player_num}_{feature}"]
+
+    return temp_data
