@@ -348,6 +348,7 @@ class PreProcessing:
             else:
                 ax.plot(positions_x[x], positions_y[y], marker=".", linestyle="-.", markersize=marker_size, color=color,
                         zorder=3, label=f"Player {player} - {side}")
+            
             ax.plot(positions_x[x].iloc[0], positions_y[y].iloc[0], marker=".", linestyle="-.",
                     markersize=int(marker_size * 1.75), color="green", zorder=3)
             ax.plot(positions_x[x].iloc[-1], positions_y[y].iloc[-1], marker=".", linestyle="-.",
@@ -384,9 +385,10 @@ class PreProcessing:
         start_seconds = dataset["Time [s]"].iloc[0]
         end_seconds = dataset["Time [s]"].iloc[-1]
         pl = [i for i in players]
-        ax.set_title(
-            f"Tracking for Player {pl} in the First Half from {start_seconds} seconds to {end_seconds} seconds")
-        ax.legend(title=title, loc="upper left", fontsize=8)
+        ax.set_title(f"Tracking for Player {pl} in the First Half from {start_seconds} seconds to {end_seconds} seconds")
+
+        ax.legend(title=title, loc="upper right", bbox_to_anchor=(1.28, 1), fontsize=8)
 
         plt.tight_layout()
         plt.show()
+        

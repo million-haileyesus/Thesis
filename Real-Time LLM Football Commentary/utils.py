@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
+import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+
 
 def process_event_data(event_data, full_data):
     """
@@ -19,29 +21,42 @@ def process_event_data(event_data, full_data):
     --------
     pd.DataFrame
         Processed event data with frame-by-frame event types
-    """
+    """       # game_2_event = game_2_event[~(game_2_event["Type"] == "CARD")]143622	5744.88	143630
+    ball_out_idx = full_data.index[
+        (full_data["Ball-x"] < 0) | (full_data["Ball-x"] > 1) |
+        (full_data["Ball-y"] < 0) | (full_data["Ball-y"] > 1)
+    ]
+
+    ball_out_df = pd.DataFrame({
+        "Type": "BALL OUT"
+    }, index=ball_out_idx)
+
+    event_data = event_data[~(event_data["Type"] == "BALL OUT")]
     start_frames = event_data["Start Frame"].iloc[1:].to_numpy()
     end_frames = event_data["End Frame"].iloc[1:].to_numpy()
     event_types = event_data["Type"].iloc[1:].to_numpy()
-    
+
     # Validation
     assert start_frames.shape == end_frames.shape == event_types.shape
-    
+
     # Ensure end frames don't exceed data bounds
     end = full_data.index[-1]
     end_frames = np.minimum(end_frames, end)
-    
+
     # Create frame ranges and unique indices
-    frame_ranges = [np.arange(min(i, j), max(i, j) + 1) 
-                   for i, j in zip(start_frames, end_frames)]
+    frame_ranges = [np.arange(min(i, j), max(i, j) + 1)
+                    for i, j in zip(start_frames, end_frames)]
     unique_indices = np.unique(np.concatenate(frame_ranges))
-    
+
     # Create and populate event DataFrame
     event_df = pd.DataFrame(index=unique_indices, columns=["Type"])
     for s, e, e_t in zip(start_frames, end_frames, event_types):
         event_df.loc[s:e, "Type"] = e_t
+        
+    combined_event_df = ball_out_df.combine_first(event_df)
     
-    return event_df.dropna()
+    return combined_event_df.dropna()
+
 
 def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, model_name=""):
     """
@@ -65,29 +80,29 @@ def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, 
         Name of the model for plot title
     """
     fig, ax = plt.subplots(figsize=(12, 10))
-    
+
     cm_counts = confusion_matrix(y_test, y_pred, labels=labels)
     cm_normalized = confusion_matrix(y_test, y_pred, labels=labels, normalize="true")
-    
+
     # Create annotations with both counts and normalized values
-    annot = [[f"{count} | {norm:.2f}" 
+    annot = [[f"{count} | {norm:.2f}"
               for count, norm in zip(row_counts, row_norm)]
              for row_counts, row_norm in zip(cm_counts, cm_normalized)]
-    
-    sns.heatmap(cm_normalized, 
+
+    sns.heatmap(cm_normalized,
                 annot=annot,
-                fmt="", 
-                cmap="viridis", 
-                xticklabels=labels, 
+                fmt="",
+                cmap="viridis",
+                xticklabels=labels,
                 yticklabels=labels,
                 cbar_kws={"label": "Normalized Frequency"})
-    
+
     ax.set_xlabel("Predicted label")
     ax.set_ylabel("True label")
-    ax.set_title(f"{model_name.title()} Confusion Matrix Split #{(split+1)}")
+    ax.set_title(f"{model_name.title()} Confusion Matrix Split #{(split + 1)}")
     plt.tight_layout()
     plt.show()
-    
+
     # Print accuracy scores
     train_accuracy = accuracy_score(y_train, y_train_pred)
     test_accuracy = accuracy_score(y_test, y_pred)
@@ -96,10 +111,11 @@ def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, 
     f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
 
     print(f"{model_name} training accuracy: {train_accuracy * 100:0.2f}%")
-    print(f"{model_name} testing accuracy: {test_accuracy * 100:0.2f}%\n")   
+    print(f"{model_name} testing accuracy: {test_accuracy * 100:0.2f}%\n")
     print(f"{model_name} testing precision: {precision * 100:0.2f}%")
     print(f"{model_name} testing recall: {recall * 100:0.2f}%")
     print(f"{model_name} testing f1: {f1 * 100:0.2f}%\n\n")
+
 
 def plot_accuracy_history(history: dict, title: str = ""):
     """
@@ -113,18 +129,18 @@ def plot_accuracy_history(history: dict, title: str = ""):
         Title for the plot
     """
     fig, ax = plt.subplots(figsize=(12, 8))
-    
+
     for metric, results in history.items():
         num_epochs = len(results)
         ax.plot(list(range(1, num_epochs + 1)), results, marker="o", label=metric)
-    
+
     ax.set_xlabel("Number of epochs")
     ax.set_ylabel("Training and validation accuracy")
     ax.set_title(f"Learning curve for {title}")
-    
+
     ax.grid(True)
     ax.legend()
-    
+
     plt.show()
 
 
@@ -174,6 +190,7 @@ def calculate_velocity_acceleration(dataset: pd.DataFrame) -> pd.DataFrame:
 
     return temp_data
 
+
 def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
     """
     Calculates the velocity and direction of players and ball in a given dataset.
@@ -191,15 +208,15 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
     for i in range(0, player_columns.shape[0] - 1, 2):
         # Calculate Euclidean distance between consecutive points
         ply_x, ply_y = player_columns[i], player_columns[i + 1]
-        
+
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
 
-        distance = np.sqrt(x_diff**2 + y_diff**2)
-        
+        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
+
         # Calculate time difference between frames
         time_diff = temp_data["Time [s]"].diff()
-        
+
         # Calculate speed (distance / time)
         # Note: First row will be NaN as we can't calculate speed for a single point
         velocity = distance / time_diff
@@ -218,7 +235,9 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
 
     return temp_data
 
-def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 1000000, frame_interval: int = 1000000, feature="acceleration") -> pd.DataFrame:
+
+def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 1000000, frame_interval: int = 1000000,
+                   feature="acceleration") -> pd.DataFrame:
     """
     Extracts frame data for ball and players within a specified interval.
     
@@ -234,7 +253,7 @@ def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 10000
     # Calculate frame range
     start_range = max(dataset.index[0], frame - frame_interval)
     end_range = min(dataset.index[-1], frame + frame_interval)
-    
+
     # Initialize DataFrame with proper index
     temp_data = pd.DataFrame(index=dataset.loc[start_range:end_range].index)
 
@@ -254,7 +273,7 @@ def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 10000
 
             prefix = "Home" if player_num < 15 else "Away"
 
-                # Add player position data
+            # Add player position data
             temp_data[f"{prefix}-Player{player_num}-x"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-x"]
             temp_data[f"{prefix}-Player{player_num}-y"] = dataset.loc[start_range:end_range, f"{prefix}-Player{player_num}-y"]
 
@@ -263,3 +282,98 @@ def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 10000
             temp_data[f"P_{player_num}_{feature}"] = dataset.loc[start_range:end_range, f"P_{player_num}_{feature}"]
 
     return temp_data
+
+
+def calculate_player_ball_distances(game_data, player_data, ball_data):
+    """
+    Calculate distances between players and the ball for each timestamp.
+    
+    Parameters:
+    game_data (pd.DataFrame): DataFrame containing game timestamps
+    player_data (pd.DataFrame): DataFrame containing player positions
+    ball_data (pd.DataFrame): DataFrame containing ball positions
+    
+    Returns:
+    pd.DataFrame: DataFrame with calculated distances for each player000
+    """
+    result = pd.DataFrame(index=game_data.index)
+    result["Time [s]"] = game_data["Time [s]"]
+
+    # Calculate distance for each player
+    for i in range(0, player_data.shape[1] - 1, 2):
+        player_x = player_data.iloc[:, i]
+        player_y = player_data.iloc[:, i + 1]
+
+        # Euclidean distance calculation
+        euclidean_x = np.square(player_x - ball_data["Ball-x"])
+        euclidean_y = np.square(player_y - ball_data["Ball-y"])
+        distance = np.sqrt(euclidean_x + euclidean_y)
+
+        # Store result using player name without coordinate suffix
+        player_name = player_data.columns[i][:-2]
+        result[player_name] = distance
+
+    return result
+
+
+def track_closest_players(game_data, closest_players):
+    """
+    Track positions of players closest to the ball.
+    
+    Parameters:
+    game_data (pd.DataFrame): DataFrame containing game data
+    closest_players (pd.Series/np.array): Array of player names who are closest to ball
+    
+    Returns:
+    pd.DataFrame: DataFrame with positions of closest players and ball
+    """
+    game_data_pl = pl.from_pandas(game_data)
+    closest_players_pl = pl.from_pandas(closest_players)
+
+    data_rows = []
+    player_columns = ["P_1-x", "P_2-x", "P_3-x", "P_4-x", "P_5-x",
+                     "P_1-y", "P_2-y", "P_3-y", "P_4-y", "P_5-y"]
+    
+    # Create arrays of column names for x and y coordinates
+    x_columns = np.array([[f"{player}-x" for player in players_list] for players_list in closest_players_pl.to_numpy()])
+    y_columns = np.array([[f"{player}-y" for player in players_list] for players_list in closest_players_pl.to_numpy()])
+    
+    for idx in range(len(game_data_pl)):
+        # Get x and y coordinates for the current row
+        temp_x = game_data_pl.select(pl.col(x_columns[idx].tolist())).row(idx)
+        temp_y = game_data_pl.select(pl.col(y_columns[idx].tolist())).row(idx)
+
+        # Combine x and y coordinates
+        combine = np.concatenate([temp_x, temp_y])
+        data_rows.append(combine)
+    
+    # Create the DataFrame with the collected data
+    min_dist_to_ball = pl.DataFrame(
+        data_rows,
+        schema=player_columns,
+        orient="row"
+    )
+    
+    min_dist_to_ball.insert_column(0, pl.Series("Time [s]", game_data_pl["Time [s]"]))
+
+    min_dist_to_ball = min_dist_to_ball.with_columns([
+        pl.Series("Ball-x", game_data_pl["Ball-x"]),
+        pl.Series("Ball-y", game_data_pl["Ball-y"])
+    ])
+
+    min_dist_to_ball = min_dist_to_ball.to_pandas()
+    min_dist_to_ball.index = game_data.index
+    
+    return min_dist_to_ball
+
+
+def get_n_smallest_indices_sorted(df, n=5):
+    arr = df.values
+    # Get indices of n smallest elements (sorted)
+    idx = np.argsort(arr, axis=1)[:, :n]
+    result = []
+    for row in idx:
+        result.append(df.columns[row].tolist())
+
+    return pd.DataFrame(result, index=df.index)
+
