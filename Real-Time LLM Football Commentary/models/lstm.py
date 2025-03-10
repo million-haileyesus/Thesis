@@ -1,22 +1,69 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
+class Encoder(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate):
+        super(Encoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        
+        # Input normalization
+        self.input_bn = nn.BatchNorm1d(input_size)
+        
+        # LSTM for encoding input sequence
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout_rate
+        )
+        
+        self.init_weights()
+        
+    def init_weights(self):
+        for name, param in self.lstm.named_parameters():
+            if "weight" in name:
+                nn.init.xavier_uniform_(param)
+    
+    def forward(self, x):
+        # x shape: [batch_size, seq_len, input_size]
+        batch_size = x.size(0)
+        
+        # Apply batch normalization
+        # Reshape for batch norm
+        x_reshaped = x.reshape(-1, x.size(2))
+        x_normalized = self.input_bn(x_reshaped)
+        x = x_normalized.reshape(batch_size, -1, x.size(2))
+        
+        # Encoder LSTM
+        # outputs shape: [batch_size, seq_len, hidden_size]
+        # hidden shape: [num_layers, batch_size, hidden_size]
+        outputs, (hidden, cell) = self.lstm(x)
+        
+        return outputs, (hidden, cell)
 
-class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes):
-        super(LSTM, self).__init__()
+class Decoder(nn.Module):
+    def __init__(self, hidden_size, num_layers, dropout_rate, num_classes):
+        super(Decoder, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.num_classes = num_classes
 
-        self.input_bn = nn.BatchNorm1d(input_size)
-
-        # Define encoder and decoder
-        self.encoder = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.decoder = nn.LSTM(num_classes, hidden_size, num_layers, batch_first=True)
-
+        # LSTM for decoding
+        self.lstm = nn.LSTM(
+            input_size=num_classes,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout_rate
+        )
+        
+        # Hidden state normalization
         self.hidden_bn = nn.BatchNorm1d(hidden_size)
-
+        
+        # Output projection
         self.fc = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
             nn.BatchNorm1d(hidden_size),
@@ -24,58 +71,131 @@ class LSTM(nn.Module):
             nn.Dropout(dropout_rate),
             nn.Linear(hidden_size, num_classes)
         )
-
+        
         self.init_weights()
-
+        
     def init_weights(self):
-        for name, param in self.encoder.named_parameters():
+        for name, param in self.lstm.named_parameters():
             if "weight" in name:
                 nn.init.xavier_uniform_(param)
-
-        for name, param in self.decoder.named_parameters():
-            if "weight" in name:
-                nn.init.xavier_uniform_(param)
-
+                
         for layer in self.fc:
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
-
-    def forward(self, x, target_length=None):
-        # Add target_length parameter or use x.size(1) as default
+    
+    def forward(self, encoder_outputs, encoder_hidden, target=None, target_length=None, teacher_forcing_ratio=0.5):
+        """
+        Full sequence decoding
+        
+        Args:
+            encoder_outputs: Outputs from encoder [batch_size, input_seq_len, hidden_size]
+            encoder_hidden: Final hidden state from encoder (h_n, c_n)
+            target: Target sequence for teacher forcing [batch_size, target_seq_len, num_classes]
+            target_length: Length of output sequence to generate
+            teacher_forcing_ratio: Probability of using teacher forcing
+            
+        Returns:
+            outputs: Sequence of predictions [batch_size, target_seq_len, num_classes]
+        """
+        batch_size = encoder_outputs.size(0)
+        
+        # Determine output sequence length
         if target_length is None:
-            target_length = x.size(1)  # Use input sequence length as default
-
-        batch_size = x.size(0)
-
-        # x shape: [batch_size, seq_len, features]
-        # Transpose to: [batch_size, features, seq_len]
-        x = x.transpose(1, 2)
-        x = self.input_bn(x)
-        # Transpose back: [batch_size, seq_len, features]
-        x = x.transpose(1, 2)
-
-        # Encoder
-        _, (h_n, c_n) = self.encoder(x)
-
-        # Decoder
-        decoder_input = torch.zeros(batch_size, 1, self.num_classes).to(x.device)
-        decoder_hidden = (h_n, c_n)
+            target_length = target.size(1) if target else encoder_outputs.size(1)
+        
+        # Initialize first decoder input as zeros (start token)
+        decoder_input = torch.zeros(batch_size, 1, self.num_classes).to(encoder_outputs.device)
+        
+        # Use encoder final hidden state for decoder initialization
+        decoder_hidden = encoder_hidden
+        
+        # Store outputs
         outputs = []
-
+        
+        # Generate output sequence
         for t in range(target_length):
-            out, decoder_hidden = self.decoder(decoder_input, decoder_hidden)
-
-            # out shape: [batch_size, 1, hidden_size]
-            # Transpose to: [batch_size, hidden_size, 1]
-            out = out.transpose(1, 2)
-            out = self.hidden_bn(out)
-            # Transpose back: [batch_size, 1, hidden_size]
-            out = out.transpose(1, 2)
-
-            prediction = self.fc(out.squeeze(1)).unsqueeze(1)
-            outputs.append(prediction)
-            decoder_input = prediction
-
+            # Forward pass through decoder for single step
+            output, decoder_hidden = self.forward_step(decoder_input, decoder_hidden)
+            outputs.append(output)
+            
+            # Teacher forcing: use ground truth as next input with probability teacher_forcing_ratio
+            if target is not None and t < target_length-1 and torch.rand(1).item() < teacher_forcing_ratio:
+                decoder_input = target[:, t:t+1, :]
+            else:
+                decoder_input = output
+        
+        # Concatenate outputs along sequence dimension
         return torch.cat(outputs, dim=1)
+
+    def forward_step(self, input_, hidden):
+        """
+        Process a single decoding step
+        
+        Args:
+            input: Input tensor for this step [batch_size, 1, output_size]
+            hidden: Hidden state from previous step or encoder
+            
+        Returns:
+            output: Prediction for this step [batch_size, 1, output_size]
+            hidden: Updated hidden state for next step
+        """
+        # input shape: [batch_size, 1, output_size]
+        batch_size = input_.size(0)
+        
+        # Run single LSTM step
+        lstm_out, hidden = self.lstm(input_, hidden)
+        # lstm_out shape: [batch_size, 1, hidden_size]
+        
+        # Apply batch norm to hidden state
+        lstm_out_flat = lstm_out.reshape(-1, self.hidden_size)
+        lstm_out_norm = self.hidden_bn(lstm_out_flat)
+        lstm_out = lstm_out_norm.reshape(batch_size, 1, self.hidden_size)
+        
+        # Apply output layers
+        lstm_out_flat = lstm_out.reshape(-1, self.hidden_size)
+        fc_out = self.fc[0](lstm_out_flat)  # Linear
+        fc_out = self.fc[1](fc_out)         # BatchNorm
+        fc_out = self.fc[2](fc_out)         # ReLU
+        fc_out = self.fc[3](fc_out)         # Dropout
+        output_flat = self.fc[4](fc_out)    # Final linear
+        
+        # Reshape back
+        output = output_flat.reshape(batch_size, 1, self.num_classes)
+        
+        return output, hidden
+
+class LSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes):
+        super(LSTM, self).__init__()
+        
+        self.encoder = Encoder(input_size, hidden_size, num_layers, dropout_rate)
+        self.decoder = Decoder(hidden_size, num_layers, dropout_rate, num_classes)
+        
+    def forward(self, src, target=None, target_length=None, teacher_forcing_ratio=0.5):
+        """
+        Full sequence to sequence model
+        
+        Args:
+            src: Source sequence [batch_size, src_seq_len, input_size]
+            target: Target sequence for teacher forcing [batch_size, target_seq_len, num_classes]
+            target_length: Length of output sequence to generate
+            teacher_forcing_ratio: Probability of using teacher forcing
+            
+        Returns:
+            outputs: Sequence of predictions [batch_size, target_seq_len, num_classes]
+        """
+        # Encode input sequence
+        encoder_outputs, encoder_hidden = self.encoder(src)
+        
+        # Decode to generate output sequence
+        outputs = self.decoder(
+            encoder_outputs,
+            encoder_hidden,
+            target,
+            target_length,
+            teacher_forcing_ratio
+        )
+        
+        return outputs

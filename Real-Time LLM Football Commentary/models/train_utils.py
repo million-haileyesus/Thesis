@@ -26,7 +26,8 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_mo
         _, pred = torch.max(outputs, 1)
         train_acc += (pred == labels).float().sum().item()
 
-    epoch_loss = train_loss / len(train_loader)
+    epoch_loss = train_loss / len(train_loader.dataset)
+    print("Changed to 'train_loader.dataset'")
     if is_seq_model:
         sequence_length = data.size(1)
         epoch_accuracy = train_acc / (train_dataset_len * sequence_length)
@@ -62,7 +63,7 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model
             val_preds.extend(pred.cpu().numpy().flatten())
             val_labels.extend(label.cpu().numpy().flatten())
 
-    epoch_loss = val_loss / len(validation_loader)
+    epoch_loss = val_loss / len(validation_loader.dataset) 
     if is_seq_model:
         sequence_length = data.size(1)
         epoch_accuracy = val_acc / (val_dataset_len * sequence_length)

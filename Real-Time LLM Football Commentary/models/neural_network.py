@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, num_classes, num_hidden_layers, dropout_rate, hidden_size):
+    def __init__(self, input_size, num_classes, num_hidden_layers, hidden_size, dropout_rate):
         super().__init__()
         self.layers = nn.ModuleList()
         
@@ -22,6 +22,15 @@ class NeuralNetwork(nn.Module):
             ])
 
         self.layers.append(nn.Linear(hidden_size, num_classes))
+
+        self.init_weights()
+
+    def init_weights(self):
+        for layer in self.layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
     def forward(self, x):
         for layer in self.layers:

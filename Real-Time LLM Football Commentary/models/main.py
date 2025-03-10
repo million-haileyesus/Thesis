@@ -4,17 +4,13 @@ from .optimizer_utils import get_optimizer, get_scheduler
 from .train_utils import train_one_epoch, validate_one_epoch
 
 
-def get_model(model_name, nn_params=None, lstm_params=None):
-    if model_name.lower() == "nn":
-        if nn_params is None:
-            raise ValueError("Parameters for 'NeuralNetwork' must be provided in nn_params.")
-        return NeuralNetwork(**nn_params)
-    elif model_name.lower() == "lstm":
-        if lstm_params is None:
-            raise ValueError("Parameters for 'RecurrentNeuralNetwork' must be provided in rnn_params.")
-        return LSTM(**lstm_params)
+def get_model(model, params=None):
+    if model:
+        if params is None:
+            raise ValueError("Parameters for 'NeuralNetwork' must be provided in params.")
+        return model(**params)
     else:
-        raise ValueError("Unsupported model type. Use 'nn' or 'lstm'.")
+        raise ValueError("Unsupported model type. Use the correct model.")
 
 
 def train_model(model, train_loader, validation_loader, epochs, optimizer_name, criterion, learning_rate, device, verbose=True, is_seq_model=False):
@@ -24,8 +20,9 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
         scheduler = get_scheduler(optimizer)
 
     history = {"training_accuracy": [], "validation_accuracy": []}
-
-    for epoch in range(epochs):
+    width = len(str(epochs - 1))
+    
+    for epoch in range(1, epochs + 1):
         train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_model=is_seq_model)
         val_loss, val_acc, val_metrics = validate_one_epoch(model, validation_loader, criterion, device, is_seq_model=is_seq_model)
 
@@ -37,7 +34,7 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
             scheduler.step(val_loss)
 
         if verbose:
-            print(f"Epoch {epoch + 1}/{epochs}: "
+            print(f"Epoch {epoch:{width}d}/{epochs}: "
                   f"Train accuracy: {train_acc * 100:.2f}% | "
                   f"Val accuracy: {val_acc * 100:.2f}% | "
                   f"Train loss: {train_loss:.4f} | "

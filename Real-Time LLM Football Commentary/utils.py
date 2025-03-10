@@ -116,6 +116,7 @@ def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, 
     print(f"{model_name} testing recall: {recall * 100:0.2f}%")
     print(f"{model_name} testing f1: {f1 * 100:0.2f}%\n\n")
 
+    return fig
 
 def plot_accuracy_history(history: dict, title: str = ""):
     """
@@ -294,19 +295,20 @@ def calculate_player_ball_distances(game_data, player_data, ball_data):
     ball_data (pd.DataFrame): DataFrame containing ball positions
     
     Returns:
-    pd.DataFrame: DataFrame with calculated distances for each player000
+    pd.DataFrame: DataFrame with calculated distances for each player
     """
-    result = pd.DataFrame(index=game_data.index)
-    result["Time [s]"] = game_data["Time [s]"]
+    index = game_data.index
+    result = pd.DataFrame(index=index)
+    result["Time [s]"] = game_data.loc[index, "Time [s]"]
 
     # Calculate distance for each player
     for i in range(0, player_data.shape[1] - 1, 2):
-        player_x = player_data.iloc[:, i]
-        player_y = player_data.iloc[:, i + 1]
+        player_x = player_data.loc[index, player_data.columns[i]]
+        player_y = player_data.loc[index, player_data.columns[i + 1]]
 
         # Euclidean distance calculation
-        euclidean_x = np.square(player_x - ball_data["Ball-x"])
-        euclidean_y = np.square(player_y - ball_data["Ball-y"])
+        euclidean_x = np.square(player_x - ball_data.loc[index, "Ball-x"])
+        euclidean_y = np.square(player_y - ball_data.loc[index, "Ball-y"])
         distance = np.sqrt(euclidean_x + euclidean_y)
 
         # Store result using player name without coordinate suffix
@@ -316,7 +318,7 @@ def calculate_player_ball_distances(game_data, player_data, ball_data):
     return result
 
 
-def track_closest_players(game_data, closest_players):
+def track_closest_players(game_data: pd.DataFrame, closest_players: pd.DataFrame) -> pd.DataFrame:
     """
     Track positions of players closest to the ball.
     
@@ -327,26 +329,27 @@ def track_closest_players(game_data, closest_players):
     Returns:
     pd.DataFrame: DataFrame with positions of closest players and ball
     """
+    assert game_data.shape[0] == closest_players.shape[0], f"The shape of game_data: {game_data.shape} is different from closest_players: {closest_players.shape}"
+    
     game_data_pl = pl.from_pandas(game_data)
     closest_players_pl = pl.from_pandas(closest_players)
 
     data_rows = []
-    player_columns = ["P_1-x", "P_2-x", "P_3-x", "P_4-x", "P_5-x",
-                     "P_1-y", "P_2-y", "P_3-y", "P_4-y", "P_5-y"]
+    player_columns = [[f"P_{i}-x", f"P_{i}-y"] for i in range(1, closest_players.shape[1] + 1)]
+    player_columns = np.array(player_columns).ravel().tolist()
     
     # Create arrays of column names for x and y coordinates
     x_columns = np.array([[f"{player}-x" for player in players_list] for players_list in closest_players_pl.to_numpy()])
     y_columns = np.array([[f"{player}-y" for player in players_list] for players_list in closest_players_pl.to_numpy()])
     
-    for idx in range(len(game_data_pl)):
-        # Get x and y coordinates for the current row
-        temp_x = game_data_pl.select(pl.col(x_columns[idx].tolist())).row(idx)
-        temp_y = game_data_pl.select(pl.col(y_columns[idx].tolist())).row(idx)
-
-        # Combine x and y coordinates
-        combine = np.concatenate([temp_x, temp_y])
-        data_rows.append(combine)
+    columns = np.empty((x_columns.shape[0], x_columns.shape[1] * 2), dtype=object)
+    columns[:, 0::2] = x_columns
+    columns[:, 1::2] = y_columns
     
+    for idx in range(len(game_data_pl)):
+        temp = game_data_pl.select(pl.col(columns[idx].tolist())).row(idx)
+        data_rows.append(temp)
+
     # Create the DataFrame with the collected data
     min_dist_to_ball = pl.DataFrame(
         data_rows,
@@ -355,11 +358,8 @@ def track_closest_players(game_data, closest_players):
     )
     
     min_dist_to_ball.insert_column(0, pl.Series("Time [s]", game_data_pl["Time [s]"]))
-
-    min_dist_to_ball = min_dist_to_ball.with_columns([
-        pl.Series("Ball-x", game_data_pl["Ball-x"]),
-        pl.Series("Ball-y", game_data_pl["Ball-y"])
-    ])
+    min_dist_to_ball.insert_column(1, pl.Series("Ball-x", game_data_pl["Ball-x"]))
+    min_dist_to_ball.insert_column(2, pl.Series("Ball-y", game_data_pl["Ball-y"]))
 
     min_dist_to_ball = min_dist_to_ball.to_pandas()
     min_dist_to_ball.index = game_data.index
@@ -375,5 +375,9 @@ def get_n_smallest_indices_sorted(df, n=5):
     for row in idx:
         result.append(df.columns[row].tolist())
 
-    return pd.DataFrame(result, index=df.index)
+    columns = []
+    for i in range(1, n + 1):
+        columns.append(f"P-{i}")
+        
+    return pd.DataFrame(result, index=df.index, columns=columns)
 
