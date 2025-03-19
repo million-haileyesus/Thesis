@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, global_mean_pool
 
+
 class GNN(torch.nn.Module):
     def __init__(self, input_size, hidden_size, num_hidden_layers, num_classes, dropout_rate):
         super(GNN, self).__init__()

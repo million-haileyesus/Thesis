@@ -384,8 +384,7 @@ class PreProcessing:
 
         start_seconds = dataset["Time [s]"].iloc[0]
         end_seconds = dataset["Time [s]"].iloc[-1]
-        pl = [i for i in players]
-        ax.set_title(f"Tracking for Player {pl} in the First Half from {start_seconds} seconds to {end_seconds} seconds")
+        ax.set_title(f"Tracking for Player {players} in the First Half from {start_seconds} seconds to {end_seconds} seconds")
 
         ax.legend(title=title, loc="upper right", bbox_to_anchor=(1.28, 1), fontsize=8)
 

@@ -21,7 +21,7 @@ def process_event_data(event_data, full_data):
     --------
     pd.DataFrame
         Processed event data with frame-by-frame event types
-    """       # game_2_event = game_2_event[~(game_2_event["Type"] == "CARD")]143622	5744.88	143630
+    """
     ball_out_idx = full_data.index[
         (full_data["Ball-x"] < 0) | (full_data["Ball-x"] > 1) |
         (full_data["Ball-y"] < 0) | (full_data["Ball-y"] > 1)

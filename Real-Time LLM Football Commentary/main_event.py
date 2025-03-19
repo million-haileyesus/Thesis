@@ -4,17 +4,16 @@ import pandas as pd
 
 from utils import process_event_data
 
-def prepare_event_data(data, game_data):
+def prepare_event_data(data, game_data, events_to_leave_out=["FAULT RECEIVED", "SET PIECE", "CARD", "CHALLENGE"]):
     game_event_data = pd.read_csv(data)    
-    game_event_data = game_event_data[~(game_event_data["Type"] == "FAULT RECEIVED")]
-    game_event_data = game_event_data[~(game_event_data["Type"] == "SET PIECE")]
+    game_event_data = game_event_data[~(game_event_data["Type"].isin(events_to_leave_out))]
     game_event_data = game_event_data.replace("RECOVERY", "BALL LOST")    
     game_event_data = game_event_data[["Type", "Start Frame", "End Frame", "From", "To"]]
     game_event = process_event_data(game_event_data, game_data)
 
     return game_event
 
-def prepare_json_event_data(data, game_data):
+def prepare_json_event_data(data, game_data, events_to_leave_out=["FAULT RECEIVED", "SET PIECE", "CARD", "CHALLENGE"]):
     with open(data, "r") as f:
         event = json.load(f)
         
@@ -34,8 +33,7 @@ def prepare_json_event_data(data, game_data):
     
     
     game_event_data = pd.DataFrame({"Type": type_, "Start Frame": start_frame.astype(np.int64), "End Frame": end_frame.astype(np.int64)})
-    game_event_data = game_event_data[~(game_event_data["Type"] == "FAULT RECEIVED")]
-    game_event_data = game_event_data[~(game_event_data["Type"] == "SET PIECE")]
+    game_event_data = game_event_data[~(game_event_data["Type"].isin(events_to_leave_out))]
     
     game_event_data = game_event_data.replace("RECOVERY", "BALL LOST")
     game_event = process_event_data(game_event_data, game_data)

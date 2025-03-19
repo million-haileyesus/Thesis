@@ -3,7 +3,7 @@ import torch.optim as optim
 
 def get_optimizer(optimizer_name, model_parameters, learning_rate):
     if optimizer_name.lower() == "adam":
-        return optim.Adam(model_parameters, lr=learning_rate)
+        return optim.Adam(model_parameters, lr=learning_rate, weight_decay=1e-4)
     elif optimizer_name.lower() == "sgd":
         return optim.SGD(model_parameters, lr=learning_rate, momentum=0.9)
     else:
