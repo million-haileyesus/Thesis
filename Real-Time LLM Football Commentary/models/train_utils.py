@@ -1,8 +1,9 @@
 import torch
+import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_model, is_gnn):
+def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer):
     model.train()
     train_loss = 0.0
     train_acc = 0
@@ -31,21 +32,35 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_mo
             data, labels = data.to(device), labels.to(device)
             optimizer.zero_grad()
     
-            outputs = model(data)
-            if is_seq_model:
-                outputs = outputs.permute(0, 2, 1)
+            # Special handling for transformer models
+            if is_transformer:
+                # Convert labels to one-hot for teacher forcing
+                labels_onehot = F.one_hot(labels, num_classes=model.decoder.num_classes).float()
+                outputs = model(data, labels_onehot, teacher_forcing_ratio=0.5)
+                
+                # Reshape for loss calculation
+                outputs_flat = outputs.reshape(-1, outputs.size(2))
+                labels_flat = labels.reshape(-1)
+                loss = criterion(outputs_flat, labels_flat)
+                
+                # Get predictions from the output
+                _, pred = torch.max(outputs, 2)
+            else:
+                outputs = model(data)
+                if is_rnn:
+                    outputs = outputs.permute(0, 2, 1)
+                
+                loss = criterion(outputs, labels)
+                _, pred = torch.max(outputs, 1)
     
-            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
     
             train_loss += loss.item()
-    
-            _, pred = torch.max(outputs, 1)
             train_acc += (pred == labels).float().sum().item()
     
         epoch_loss = train_loss / len(train_loader)
-        if is_seq_model:
+        if is_rnn or is_transformer:
             sequence_length = data.size(1)
             epoch_accuracy = train_acc / (train_dataset_len * sequence_length)
         else:
@@ -54,7 +69,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_seq_mo
     return epoch_loss, epoch_accuracy
 
 
-def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model, is_gnn):
+def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_gnn, is_transformer):
     model.eval()
     val_loss = 0.0
     val_acc = 0
@@ -80,21 +95,35 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_seq_model
         else:
             for data, label in validation_loader:
                 data, label = data.to(device), label.to(device)
-                outputs = model(data)
-                if is_seq_model:
-                    outputs = outputs.permute(0, 2, 1)
-    
-                loss = criterion(outputs, label)
+                
+                # Special handling for transformer models
+                if is_transformer:
+                    # During validation, don't use teacher forcing
+                    outputs = model(data, teacher_forcing_ratio=0.0)
+                    
+                    # Reshape for loss calculation
+                    outputs_flat = outputs.reshape(-1, outputs.size(2))
+                    label_flat = label.reshape(-1)
+                    loss = criterion(outputs_flat, label_flat)
+                    
+                    # Get predictions
+                    _, pred = torch.max(outputs, 2)
+                else:
+                    outputs = model(data)
+                    if is_rnn:
+                        outputs = outputs.permute(0, 2, 1)
+                
+                    loss = criterion(outputs, label)
+                    _, pred = torch.max(outputs, 1)
+                
                 val_loss += loss.item()
-    
-                _, pred = torch.max(outputs, 1)
                 val_acc += (pred == label).float().sum().item()
     
                 val_preds.extend(pred.cpu().numpy().flatten())
                 val_labels.extend(label.cpu().numpy().flatten())
     
     epoch_loss = val_loss / len(validation_loader) 
-    if is_seq_model:
+    if is_rnn or is_transformer:
         sequence_length = data.size(1)
         epoch_accuracy = val_acc / (val_dataset_len * sequence_length)
     else:

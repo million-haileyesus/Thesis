@@ -7,7 +7,7 @@ class PositionalEncoding(nn.Module):
     """
     Adds positional encoding to the token embeddings for the Transformer
     """
-    def __init__(self, d_model, max_seq_length=5000, dropout=0.1):
+    def __init__(self, d_model, max_seq_length=5000, dropout=0.0):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
         
