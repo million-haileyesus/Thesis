@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
@@ -140,7 +141,9 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
     metrics = {
         "precision": precision_score(val_labels, val_preds, average="weighted", zero_division=0),
         "recall": recall_score(val_labels, val_preds, average="weighted", zero_division=0),
-        "f1": f1_score(val_labels, val_preds, average="weighted", zero_division=0)
+        "f1": f1_score(val_labels, val_preds, average="weighted", zero_division=0),
+        "val_labels": np.array(val_labels),
+        "val_preds": np.array(val_preds)
     }
 
     return epoch_loss, epoch_accuracy, metrics
