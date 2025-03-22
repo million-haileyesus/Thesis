@@ -34,9 +34,17 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
     
             # Special handling for transformer models
             if is_transformer:
-                # Convert labels to one-hot for teacher forcing
-                labels_onehot = F.one_hot(labels, num_classes=model.decoder.num_classes).float()
-                outputs = model(data, labels_onehot, teacher_forcing_ratio=0.5)
+                # Check if it's an encoder-only or encoder-decoder transformer
+                is_encoder_only = hasattr(model, 'encoder_only') and model.encoder_only
+                
+                if is_encoder_only:
+                    # Encoder-only case - simpler forward pass
+                    outputs = model(data)
+                else:
+                    # Encoder-decoder transformer with teacher forcing
+                    num_classes = model.decoder.num_classes
+                    labels_onehot = F.one_hot(labels, num_classes=num_classes).float()
+                    outputs = model(data, labels_onehot, teacher_forcing_ratio=0.5)
                 
                 # Reshape for loss calculation
                 outputs_flat = outputs.reshape(-1, outputs.size(2))
