@@ -67,6 +67,14 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
     
             train_loss += loss.item()
             train_acc += (pred == labels).float().sum().item()
+
+            train_preds.extend(pred.cpu().numpy().flatten())
+            train_labels.extend(label.cpu().numpy().flatten())
+            
+        metrics = {
+            "train_labels": np.array(val_labels),
+            "train_preds": np.array(val_preds)
+        }
     
         epoch_loss = train_loss / len(train_loader)
         if is_rnn or is_transformer:
@@ -75,7 +83,7 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
         else:
             epoch_accuracy = train_acc / train_dataset_len
     
-    return epoch_loss, epoch_accuracy
+    return epoch_loss, epoch_accuracy, metrics
 
 
 def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_gnn, is_transformer):
