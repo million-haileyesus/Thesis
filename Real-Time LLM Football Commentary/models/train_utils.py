@@ -8,6 +8,9 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
     model.train()
     train_loss = 0.0
     train_acc = 0
+    
+    train_preds = []
+    train_labels = []
 
     train_dataset_len = len(train_loader.dataset)
 
@@ -16,21 +19,21 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
         for data in train_loader:
             data = data.to(device)
             optimizer.zero_grad()
-            outputs = model(data)  # forward pass
-            loss = criterion(outputs, data.y)
+            output = model(data)  # forward pass
+            loss = criterion(output, data.y)
             loss.backward()
             optimizer.step()
             
             train_loss += loss.item()
             # Compute accuracy: assume data.y is of shape [num_graphs] or [num_graphs, 1]
-            _, pred = torch.max(outputs, 1)
+            _, pred = torch.max(output, 1)
             train_acc += (pred == data.y.squeeze()).float().sum().item()
         
         epoch_loss = train_loss / len(train_loader)
         epoch_accuracy = train_acc / train_dataset_len
     else:
-        for data, labels in train_loader:
-            data, labels = data.to(device), labels.to(device)
+        for data, label in train_loader:
+            data, label = data.to(device), label.to(device)
             optimizer.zero_grad()
     
             # Special handling for transformer models
@@ -40,40 +43,40 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
                 
                 if is_encoder_only:
                     # Encoder-only case - simpler forward pass
-                    outputs = model(data)
+                    output = model(data)
                 else:
                     # Encoder-decoder transformer with teacher forcing
                     num_classes = model.decoder.num_classes
-                    labels_onehot = F.one_hot(labels, num_classes=num_classes).float()
-                    outputs = model(data, labels_onehot, teacher_forcing_ratio=0.5)
+                    label_onehot = F.one_hot(label, num_classes=num_classes).float()
+                    output = model(data, label_onehot, teacher_forcing_ratio=0.5)
                 
                 # Reshape for loss calculation
-                outputs_flat = outputs.reshape(-1, outputs.size(2))
-                labels_flat = labels.reshape(-1)
-                loss = criterion(outputs_flat, labels_flat)
+                output_flat = output.reshape(-1, output.size(2))
+                label_flat = label.reshape(-1)
+                loss = criterion(output_flat, label_flat)
                 
                 # Get predictions from the output
-                _, pred = torch.max(outputs, 2)
+                _, pred = torch.max(output, 2)
             else:
-                outputs = model(data)
+                output = model(data)
                 if is_rnn:
-                    outputs = outputs.permute(0, 2, 1)
+                    output = output.permute(0, 2, 1)
                 
-                loss = criterion(outputs, labels)
-                _, pred = torch.max(outputs, 1)
+                loss = criterion(output, label)
+                _, pred = torch.max(output, 1)
     
             loss.backward()
             optimizer.step()
     
             train_loss += loss.item()
-            train_acc += (pred == labels).float().sum().item()
+            train_acc += (pred == label).float().sum().item()
 
             train_preds.extend(pred.cpu().numpy().flatten())
             train_labels.extend(label.cpu().numpy().flatten())
             
         metrics = {
-            "train_labels": np.array(val_labels),
-            "train_preds": np.array(val_preds)
+            "train_labels": np.array(train_preds),
+            "train_preds": np.array(train_labels)
         }
     
         epoch_loss = train_loss / len(train_loader)
@@ -100,11 +103,11 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
         if is_gnn:
             for data in validation_loader:
                 data = data.to(device)
-                outputs = model(data)
-                loss = criterion(outputs, data.y)
+                output = model(data)
+                loss = criterion(output, data.y)
                 val_loss += loss.item()
                 
-                _, pred = torch.max(outputs, 1)
+                _, pred = torch.max(output, 1)
                 val_acc += (pred == data.y.squeeze()).float().sum().item()
                 
                 val_preds.extend(pred.cpu().numpy().flatten())
@@ -116,22 +119,22 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
                 # Special handling for transformer models
                 if is_transformer:
                     # During validation, don't use teacher forcing
-                    outputs = model(data, teacher_forcing_ratio=0.0)
+                    output = model(data, teacher_forcing_ratio=0.0)
                     
                     # Reshape for loss calculation
-                    outputs_flat = outputs.reshape(-1, outputs.size(2))
+                    output_flat = output.reshape(-1, output.size(2))
                     label_flat = label.reshape(-1)
-                    loss = criterion(outputs_flat, label_flat)
+                    loss = criterion(output_flat, label_flat)
                     
                     # Get predictions
-                    _, pred = torch.max(outputs, 2)
+                    _, pred = torch.max(output, 2)
                 else:
-                    outputs = model(data)
+                    output = model(data)
                     if is_rnn:
-                        outputs = outputs.permute(0, 2, 1)
+                        output = output.permute(0, 2, 1)
                 
-                    loss = criterion(outputs, label)
-                    _, pred = torch.max(outputs, 1)
+                    loss = criterion(output, label)
+                    _, pred = torch.max(output, 1)
                 
                 val_loss += loss.item()
                 val_acc += (pred == label).float().sum().item()
