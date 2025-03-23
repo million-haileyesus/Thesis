@@ -167,11 +167,37 @@ class Decoder(nn.Module):
         return output, hidden
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes, decoder_num_layers=None):
         super(LSTM, self).__init__()
         
+        # If decoder_num_layers is not specified, use the same as encoder
+        if decoder_num_layers is None:
+            decoder_num_layers = num_layers
+        
         self.encoder = Encoder(input_size, hidden_size, num_layers, dropout_rate)
-        self.decoder = Decoder(hidden_size, num_layers, dropout_rate, num_classes)
+        
+        # Flag to determine if we're using encoder-only architecture
+        self.encoder_only = (decoder_num_layers == 0)
+        
+        # Create decoder only if needed
+        if not self.encoder_only:
+            self.decoder = Decoder(hidden_size, decoder_num_layers, dropout_rate, num_classes)
+        
+        # For encoder-only model, add a classification head
+        if self.encoder_only:
+            self.classifier = nn.Sequential(
+                nn.Linear(hidden_size, hidden_size),
+                nn.BatchNorm1d(hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate),
+                nn.Linear(hidden_size, num_classes)
+            )
+            # Initialize weights for classifier
+            for layer in self.classifier:
+                if isinstance(layer, nn.Linear):
+                    nn.init.xavier_uniform_(layer.weight)
+                    if layer.bias is not None:
+                        nn.init.zeros_(layer.bias)
         
     def forward(self, src, target=None, target_length=None, teacher_forcing_ratio=0.5):
         """
@@ -184,18 +210,37 @@ class LSTM(nn.Module):
             teacher_forcing_ratio: Probability of using teacher forcing
             
         Returns:
-            outputs: Sequence of predictions [batch_size, target_seq_len, num_classes]
+            outputs: Sequence of predictions [batch_size, target_seq_len, num_classes] 
+                     or [batch_size, src_seq_len, num_classes] for encoder-only
         """
         # Encode input sequence
         encoder_outputs, encoder_hidden = self.encoder(src)
         
-        # Decode to generate output sequence
-        outputs = self.decoder(
-            encoder_outputs,
-            encoder_hidden,
-            target,
-            target_length,
-            teacher_forcing_ratio
-        )
+        # For encoder-only architecture, apply classification head directly
+        if self.encoder_only:
+            batch_size, seq_len, hidden_size = encoder_outputs.shape
+            
+            # Apply classifier to each position in the sequence
+            encoder_outputs_flat = encoder_outputs.reshape(-1, hidden_size)
+            output_flat = self.classifier[0](encoder_outputs_flat)  # Linear
+            output_flat = self.classifier[1](output_flat)          # BatchNorm
+            output_flat = self.classifier[2](output_flat)          # ReLU
+            output_flat = self.classifier[3](output_flat)          # Dropout
+            output_flat = self.classifier[4](output_flat)          # Final linear
+            
+            # Reshape back to sequence format
+            outputs = output_flat.reshape(batch_size, seq_len, -1)
+            return outputs
         
-        return outputs
+        # For encoder-decoder architecture, use the decoder
+        else:
+            # Decode to generate output sequence
+            outputs = self.decoder(
+                encoder_outputs,
+                encoder_hidden,
+                target,
+                target_length,
+                teacher_forcing_ratio
+            )
+            
+            return outputs
