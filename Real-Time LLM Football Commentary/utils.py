@@ -132,7 +132,7 @@ def plot_accuracy_history(history: dict, title: str = ""):
     fig, ax = plt.subplots(figsize=(12, 8))
 
     for metric, results in history.items():
-        num_epochs = len(results)
+        num_epochs = int(len(results))
         ax.plot(list(range(1, num_epochs + 1)), results, marker="o", label=metric)
 
     ax.set_xlabel("Number of epochs")
@@ -316,6 +316,41 @@ def calculate_player_ball_distances(game_data, player_data, ball_data):
         result[player_name] = distance
 
     return result
+
+def expand_dataset(dataset: pd.DataFrame | pd.Series, look_back: int = 5) -> pd.DataFrame:
+    """
+    Expands the given dataset by creating overlapping windows of data points for a specified look-back period.
+
+    Args:
+        dataset (pd.DataFrame): The input dataset to expand.
+        look_back (int): The number of past observations to include in each window. Default is 5.
+
+    Returns:
+        pd.DataFrame: The expanded dataset with overlapping windows.
+    """
+
+    if look_back < 1 or look_back >= len(dataset):
+        raise ValueError(f"look_back must be between 1 and {len(dataset) - 1}.")
+
+    data = dataset.values
+    if data.ndim == 1:
+        data = data[:, None]
+        
+    indices = np.arange(len(dataset) - look_back)[:, None] + np.arange(look_back + 1)
+    
+    sequences = data[indices]
+
+    if isinstance(dataset, pd.Series):
+        columns = [dataset.name] if dataset.name is not None else [0]
+    else:
+        columns = dataset.columns
+    
+    expanded_df = pd.DataFrame(
+        sequences.reshape(-1, data.shape[1]), 
+        columns=columns
+    )
+    
+    return expanded_df
 
 
 def track_closest_players(game_data: pd.DataFrame, closest_players: pd.DataFrame) -> pd.DataFrame:
