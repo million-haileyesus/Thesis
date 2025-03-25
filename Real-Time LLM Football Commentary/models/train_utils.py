@@ -28,9 +28,13 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
             # Compute accuracy: assume data.y is of shape [num_graphs] or [num_graphs, 1]
             _, pred = torch.max(output, 1)
             train_acc += (pred == data.y.squeeze()).float().sum().item()
+
+            train_preds.extend(pred.cpu().numpy().flatten())
+            train_labels.extend(data.y.cpu().numpy().flatten())
         
         epoch_loss = train_loss / len(train_loader)
         epoch_accuracy = train_acc / train_dataset_len
+
     else:
         for data, label in train_loader:
             data, label = data.to(device), label.to(device)
