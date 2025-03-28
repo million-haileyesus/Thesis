@@ -35,11 +35,11 @@ class GNN(torch.nn.Module):
     def init_weights(self):
         for layer in self.layers:
             if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
+                nn.init.kaiming_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
 
-        nn.init.xavier_uniform_(self.classifier.weight)
+        nn.init.kaiming_uniform_(self.classifier.weight)
         if self.classifier.bias is not None:
             nn.init.zeros_(self.classifier.bias)
         

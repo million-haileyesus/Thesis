@@ -27,7 +27,7 @@ class Encoder(nn.Module):
         # CHANGE: Adjust parameter names if needed for GRU (usually similar to LSTM)
         for name, param in self.gru.named_parameters():
             if "weight" in name:
-                nn.init.xavier_uniform_(param)
+                nn.init.kaiming_uniform_(param)
     
     def forward(self, x):
         # x shape: [batch_size, seq_len, input_size]
@@ -82,11 +82,11 @@ class Decoder(nn.Module):
         # CHANGE: Adjust initialization for GRU parameters
         for name, param in self.gru.named_parameters():
             if "weight" in name:
-                nn.init.xavier_uniform_(param)
+                nn.init.kaiming_uniform_(param)
                 
         for layer in self.fc:
             if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
+                nn.init.kaiming_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
     
@@ -201,7 +201,7 @@ class GRU(nn.Module):
             # Initialize weights for classifier
             for layer in self.classifier:
                 if isinstance(layer, nn.Linear):
-                    nn.init.xavier_uniform_(layer.weight)
+                    nn.init.kaiming_uniform_(layer.weight)
                     if layer.bias is not None:
                         nn.init.zeros_(layer.bias)
         

@@ -214,7 +214,7 @@ class TransformerEncoder(nn.Module):
         
     def init_weights(self):
         # Initialize weights
-        nn.init.xavier_uniform_(self.input_projection.weight)
+        nn.init.kaiming_uniform_(self.input_projection.weight)
         nn.init.zeros_(self.input_projection.bias)
     
     def forward(self, src, distances=None, src_mask=None, src_key_padding_mask=None):
@@ -277,12 +277,12 @@ class TransformerDecoder(nn.Module):
     
     def init_weights(self):
         # Initialize weights
-        nn.init.xavier_uniform_(self.embedding.weight)
+        nn.init.kaiming_uniform_(self.embedding.weight)
         nn.init.zeros_(self.embedding.bias)
         
         for layer in self.output_projection:
             if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
+                nn.init.kaiming_uniform_(layer.weight)
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
     
@@ -423,7 +423,7 @@ class Transformer(nn.Module):
             # Initialize weights for classifier
             for layer in self.classifier:
                 if isinstance(layer, nn.Linear):
-                    nn.init.xavier_uniform_(layer.weight)
+                    nn.init.kaiming_uniform_(layer.weight)
                     if layer.bias is not None:
                         nn.init.zeros_(layer.bias)
     
