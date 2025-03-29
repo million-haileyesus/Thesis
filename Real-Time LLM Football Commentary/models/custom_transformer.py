@@ -67,23 +67,6 @@ class DistanceAwareMultiheadAttention(nn.MultiheadAttention):
                 average_attn_weights=average_attn_weights
             )
             
-            # Apply distance-based bias if provided
-            if distances is not None and need_weights:
-                # Convert distances to attention bias (smaller distances → higher attention)
-                # Normalize distances to [0, 1] range (inverted so smaller distances get higher values)
-                distance_bias = 1.0 - (distances / torch.max(distances, dim=-1, keepdim=True)[0])
-                
-                # Scale with learnable parameter and apply as multiplicative bias
-                distance_bias = torch.exp(self.distance_scaling * distance_bias)
-                
-                # Apply to attention weights
-                attn_weights = attn_weights * distance_bias
-                attn_weights = attn_weights / attn_weights.sum(dim=-1, keepdim=True)  # Re-normalize
-                
-                # Recompute attention output with new weights
-                attn_output = torch.bmm(attn_weights, value)
-            
-            return attn_output, attn_weights if need_weights else None
         else:
             # Fallback for older PyTorch versions
             attn_output, attn_weights = super().forward(
@@ -93,15 +76,23 @@ class DistanceAwareMultiheadAttention(nn.MultiheadAttention):
                 attn_mask=attn_mask
             )
             
-            # Apply distance-based bias if provided (same logic as above)
-            if distances is not None and need_weights:
-                distance_bias = 1.0 - (distances / torch.max(distances, dim=-1, keepdim=True)[0])
-                distance_bias = torch.exp(self.distance_scaling * distance_bias)
-                attn_weights = attn_weights * distance_bias
-                attn_weights = attn_weights / attn_weights.sum(dim=-1, keepdim=True)
-                attn_output = torch.bmm(attn_weights, value)
+        # Apply distance-based bias if provided
+        if distances is not None and need_weights:
+            # Convert distances to attention bias (smaller distances → higher attention)
+            # Normalize distances to [0, 1] range (inverted so smaller distances get higher values)
+            distance_bias = 1.0 - (distances / torch.max(distances, dim=-1, keepdim=True)[0])
             
-            return attn_output, attn_weights if need_weights else None
+            # Scale with learnable parameter and apply as multiplicative bias
+            distance_bias = torch.exp(self.distance_scaling * distance_bias)
+            
+            # Apply to attention weights
+            attn_weights = attn_weights * distance_bias
+            attn_weights = attn_weights / attn_weights.sum(dim=-1, keepdim=True)  # Re-normalize
+            
+            # Recompute attention output with new weights
+            attn_output = torch.bmm(attn_weights, value)
+        
+        return attn_output, attn_weights if need_weights else None
 
 class DistanceAwareTransformerEncoderLayer(nn.Module):
     """
