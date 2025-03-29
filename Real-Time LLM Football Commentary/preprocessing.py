@@ -29,15 +29,21 @@ class PreProcessing:
         self.data_home_path = None
         self.data_away_path = None
 
+        self.data_home_away_path = None
+
         self._config = Config()
         self._colors = self._config.COLOR_MAP
 
-    def _validate_input_files(self) -> None:
+    def _validate_input_files(self, is_json: bool = False) -> None:
         """Validate that input files exist and are readable."""
-        if not self.data_home_path.exists():
-            raise FileNotFoundError(f"Home team data file not found: {self.data_home_path}")
-        if not self.data_away_path.exists():
-            raise FileNotFoundError(f"Away team data file not found: {self.data_away_path}")
+        if is_json:
+            if not self.data_home_away_path.exists():
+                raise FileNotFoundError(f"Home Away team data file not found: {self.data_home_away_path}")
+        else:
+            if not self.data_home_path.exists():
+                raise FileNotFoundError(f"Home team data file not found: {self.data_home_path}")
+            if not self.data_away_path.exists():
+                raise FileNotFoundError(f"Away team data file not found: {self.data_away_path}")
 
     def load_and_process_data(
             self, data_home: str | Path, data_away: str | Path,
@@ -68,8 +74,8 @@ class PreProcessing:
         original_df_home = self._read_file(self.data_home_path)
         original_df_away = self._read_file(self.data_away_path)
 
-        df_home = self._remove_headers(original_df_home)
-        df_away = self._remove_headers(original_df_away)
+        df_home = self._fix_headers(original_df_home)
+        df_away = self._fix_headers(original_df_away)
 
         df_subs_home = self.get_subs(original_df_home)
         df_subs_away = self.get_subs(original_df_away)
@@ -105,22 +111,51 @@ class PreProcessing:
 
         return home_away_data
 
+    def load_and_process_json_data(
+            self, data_home_away: str | Path, add_ball_data: bool = True, 
+            add_headers: bool = True, half_period: str | int = "both", 
+            remove_ball_nan: bool = True
+    ) -> pd.DataFrame:
+
+        self.data_home_away_path = Path(data_home_away)
+
+        self._validate_input_files(is_json=True)
+
+        self._validate_parameters(half_period)
+
+        original_df_home_away = self._read_file(self.data_home_away_path, is_json=True)       
+        df_home_away = self._fix_headers(original_df_home_away, add_time=True)     
+        df_home_away.columns = self._generate_headers(dataset=df_home_away, add_ball_data=add_ball_data, add_default=add_headers)        
+        home_away_data = self._filter_nan_data(df_home_away, remove_ball_nan)
+
+        return home_away_data
+
     def _validate_parameters(self, half_period: int) -> None:
         """Validate input parameters."""
         if half_period not in (1, 2, "both"):
             raise ValueError("half_period must be either 1, 2 or both")
 
-    def _read_file(self, file_path: Path) -> pd.DataFrame:
+    def _read_file(self, file_path: Path, is_json: bool = False) -> pd.DataFrame:
         """Read a single team's data file."""
         try:
-            return pd.read_csv(file_path, low_memory=False)
+            if is_json:
+                return pd.read_csv(file_path, sep=r"[;,:]", header=None, engine="python")
+            else:
+                return pd.read_csv(file_path, low_memory=False)
         except Exception as e:
             raise DataValidationError(f"Error reading {file_path}: {str(e)}")
 
-    def _remove_headers(self, dataset: pd.DataFrame) -> pd.DataFrame:
-        temp_data = dataset.iloc[2:].reset_index(drop=True)
-        temp_data.columns = dataset.iloc[1].values
-        temp_data = temp_data.drop(columns=temp_data.columns[25:])
+    def _fix_headers(self, dataset: pd.DataFrame, add_time: bool = False) -> pd.DataFrame:
+        if not add_time:
+            temp_data = dataset.iloc[2:].reset_index(drop=True)
+            temp_data.columns = dataset.iloc[1].values
+            temp_data = temp_data.drop(columns=temp_data.columns[25:])
+            
+        else:
+            temp_data = dataset.iloc[:, :]
+            time = np.arange(0.04, (len(temp_data) + 1) * 0.04, 0.04).round(2)
+            temp_data.insert(1, "Time [s]", time)
+            
         temp_data.index = range(1, len(temp_data) + 1)
 
         return temp_data
@@ -153,20 +188,30 @@ class PreProcessing:
 
         return result
 
-    def _generate_headers(self, dataset: pd.DataFrame, team: str, add_ball_data: bool) -> list[str]:
-        columns = list(dataset.columns)
-        headers = columns[:3]
-
-        e = len(columns)
-        if add_ball_data:
-            e -= 2
-
-        end = e if len(columns) < 25 else 25  # This part is for add the ball
-        for i in range(3, end):
-            if isinstance(columns[i], str):
-                headers.append(f"{team}-{columns[i]}-x")
-            else:
-                headers.append(f"{team}-{columns[i - 1]}-y")
+    def _generate_headers(self, dataset: pd.DataFrame, add_ball_data: bool, team: str = "", add_default: bool = False) -> list[str]:
+        if add_default:
+            headers = ["Frame", "Time [s]", "Home-Player11-x", "Home-Player11-y", "Home-Player1-x", "Home-Player1-y", "Home-Player2-x", "Home-Player2-y",
+                       "Home-Player3-x", "Home-Player3-y", "Home-Player4-x", "Home-Player4-y", "Home-Player5-x", "Home-Player5-y", "Home-Player6-x", "Home-Player6-y",
+                       "Home-Player7-x", "Home-Player7-y", "Home-Player8-x", "Home-Player8-y", "Home-Player9-x", "Home-Player9-y", "Home-Player10-x",
+                       "Home-Player10-y", "Away-Player25-x", "Away-Player25-y", "Away-Player15-x", "Away-Player15-y", "Away-Player16-x",
+                       "Away-Player16-y", "Away-Player17-x", "Away-Player17-y", "Away-Player18-x", "Away-Player18-y", "Away-Player19-x",
+                       "Away-Player19-y", "Away-Player20-x", "Away-Player20-y", "Away-Player21-x", "Away-Player21-y", "Away-Player22-x",
+                       "Away-Player22-y", "Away-Player23-x", "Away-Player23-y", "Away-Player24-x", "Away-Player24-y"
+                      ]
+        else:   
+            columns = list(dataset.columns)
+            headers = columns[:3]
+    
+            e = len(columns)
+            if add_ball_data:
+                e -= 2
+    
+            end = e if len(columns) < 25 else 25  # This part is for add the ball
+            for i in range(3, end):
+                if isinstance(columns[i], str):
+                    headers.append(f"{team}-{columns[i]}-x")
+                else:
+                    headers.append(f"{team}-{columns[i - 1]}-y")
 
         if add_ball_data:
             headers.extend(["Ball-x", "Ball-y"])
@@ -262,41 +307,6 @@ class PreProcessing:
                 data_home.iloc[:, :],
                 data_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
             ], axis=1)
-
-    def expand_dataset(self, dataset: pd.DataFrame | pd.Series, look_back: int = 5) -> pd.DataFrame:
-        """
-        Expands the given dataset by creating overlapping windows of data points for a specified look-back period.
-
-        Args:
-            dataset (pd.DataFrame): The input dataset to expand.
-            look_back (int): The number of past observations to include in each window. Default is 5.
-
-        Returns:
-            pd.DataFrame: The expanded dataset with overlapping windows.
-        """
-
-        if look_back < 1 or look_back >= len(dataset):
-            raise ValueError(f"look_back must be between 1 and {len(dataset) - 1}.")
-
-        data = dataset.values
-        if data.ndim == 1:
-            data = data[:, None]
-            
-        indices = np.arange(len(dataset) - look_back)[:, None] + np.arange(look_back + 1)
-        
-        sequences = data[indices]
-
-        if isinstance(dataset, pd.Series):
-            columns = [dataset.name] if dataset.name is not None else [0]
-        else:
-            columns = dataset.columns
-        
-        expanded_df = pd.DataFrame(
-            sequences.reshape(-1, data.shape[1]), 
-            columns=columns
-        )
-        
-        return expanded_df
 
     def player_visualization(
             self, dataset: pd.DataFrame, players: list[int] = [11], 

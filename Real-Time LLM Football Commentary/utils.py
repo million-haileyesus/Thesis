@@ -167,7 +167,7 @@ def calculate_velocity_acceleration(dataset: pd.DataFrame) -> pd.DataFrame:
         y_diff = temp_data[ply_y].diff()
 
         # Calculate time difference between frames
-        time_diff = temp_data["Time [s]"].diff()
+        time_diff = temp_data["Frame"].diff()
 
         # Distance calculation
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
@@ -214,25 +214,92 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
         y_diff = temp_data[ply_y].diff()
 
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
+        min_movement = 0.0001
 
         # Calculate time difference between frames
-        time_diff = temp_data["Time [s]"].diff()
+        time_diff = temp_data["Frame"].diff()
 
         # Calculate speed (distance / time)
         # Note: First row will be NaN as we can't calculate speed for a single point
         velocity = distance / time_diff
-        direction = np.arctan2(x_diff, y_diff)
+        direction_rad = np.arctan2(y_diff, x_diff)
+        
+        # Convert to degrees and normalize to 0-360°
+        direction_deg = np.degrees(direction_rad)
+        direction_deg = (direction_deg + 360) % 360
+
+        mask = distance < min_movement
+        direction_deg[mask] = np.nan
+        direction_deg = direction_deg.ffill()
 
         if "ball" in str(ply_x).lower():
             temp_data[f"Ball_velocity"] = velocity
-            temp_data[f"Ball_direction"] = direction
+            temp_data[f"Ball_direction"] = direction_deg
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
 
             temp_data[f"P_{players_num}_velocity"] = velocity
-            temp_data[f"P_{players_num}_direction"] = direction
+            temp_data[f"P_{players_num}_direction"] = direction_deg
+
+    return temp_data
+
+
+def calculate_velocity_acceleration_direction(dataset: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculates the velocity, acceleration and direction of players and ball in a given dataset.
+
+    Parameters:
+        dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+
+    Returns:
+        pandas.DataFrame: The original dataset with additional columns for velocity and direction.
+    """
+    temp_data = dataset.copy()
+    start_idx = temp_data.columns.get_loc("Time [s]")
+    player_columns = temp_data.columns[start_idx + 1:]
+
+    for i in range(0, player_columns.shape[0] - 1, 2):
+        # Calculate Euclidean distance between consecutive points
+        ply_x, ply_y = player_columns[i], player_columns[i + 1]
+
+        x_diff = temp_data[ply_x].diff()
+        y_diff = temp_data[ply_y].diff()
+
+        min_movement = 0.0001
+
+        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
+
+        # Calculate time difference between frames
+        time_diff = temp_data["Frame"].diff()
+
+        # Calculate speed (distance / time)
+        # Note: First row will be NaN as we can't calculate speed for a single point
+        velocity = distance / time_diff
+        acceleration = velocity.diff() / time_diff
+        direction_rad = np.arctan2(y_diff, x_diff)
+        
+        # Convert to degrees and normalize to 0-360°
+        direction_deg = np.degrees(direction_rad)
+        direction_deg = (direction_deg + 360) % 360
+
+        mask = distance < min_movement
+        direction_deg[mask] = np.nan
+        direction_deg = direction_deg.ffill()
+
+        if "ball" in str(ply_x).lower():
+            temp_data[f"Ball_velocity"] = velocity
+            temp_data[f"Ball_acceleration"] = acceleration
+            temp_data[f"Ball_direction"] = direction_deg
+        else:
+            players_num = ply_x[11]
+            if len(ply_x) == 15:
+                players_num = ply_x[11:13]
+
+            temp_data[f"P_{players_num}_velocity"] = velocity
+            temp_data[f"P_{players_num}_acceleration"] = acceleration
+            temp_data[f"P_{players_num}_direction"] = direction_deg
 
     return temp_data
 
