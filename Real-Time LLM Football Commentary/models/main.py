@@ -13,7 +13,7 @@ def get_model(model, params=None):
         raise ValueError("Unsupported model type. Use the correct model.")
 
 
-def train_model(model, train_loader, validation_loader, epochs, optimizer_name, criterion, learning_rate, device, verbose=True, is_rnn=False, is_gnn=False, is_transformer=False):
+def train_model(model, train_loader, validation_loader, epochs, optimizer_name, criterion, learning_rate, device, verbose=True, is_rnn=False, is_gnn=False, is_transformer=False, accumulation_steps=8):
     optimizer = get_optimizer(optimizer_name, model.parameters(), learning_rate)
     scheduler = None
     if optimizer_name == "sgd":
@@ -23,7 +23,7 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
     width = len(str(epochs - 1))
     
     for epoch in range(1, epochs + 1):
-        train_loss, train_acc, train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer)
+        train_loss, train_acc, train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer, accumulation_steps=accumulation_steps)
         val_loss, val_acc, val_metrics = validate_one_epoch(model, validation_loader, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer)
 
         history["training_accuracy"].append(train_acc)

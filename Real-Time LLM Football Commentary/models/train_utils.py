@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer, accumulation_steps=8):
+def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer, accumulation_steps):
     model.train()
     train_loss = 0.0
     train_acc = 0
