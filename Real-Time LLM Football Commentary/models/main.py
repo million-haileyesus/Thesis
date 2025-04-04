@@ -23,7 +23,7 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
     width = len(str(epochs - 1))
     
     for epoch in range(1, epochs + 1):
-        train_loss, train_acc, train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer, accumulation_steps=accumulation_steps)
+        train_loss, train_acc, train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer)
         val_loss, val_acc, val_metrics = validate_one_epoch(model, validation_loader, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer)
 
         history["training_accuracy"].append(train_acc)

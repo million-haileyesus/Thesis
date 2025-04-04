@@ -1,10 +1,11 @@
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 
-def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer, accumulation_steps):
+def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer):
     model.train()
     train_loss = 0.0
     train_acc = 0
@@ -13,37 +14,18 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
     train_labels = []
 
     train_dataset_len = len(train_loader.dataset)
-    
-    # Initialize gradients to zero at the beginning
-    optimizer.zero_grad()
-    
-    # Track batches for accumulation
-    batch_count = 0
-    
+
     if is_gnn:
         # For GNN models, the DataLoader yields a PyG Data object.
         for data in train_loader:
             data = data.to(device)
-            
-            # Forward pass
+            optimizer.zero_grad()
             output = model(data)  # forward pass
             loss = criterion(output, data.y)
-            
-            # Scale the loss according to accumulation steps
-            loss = loss / accumulation_steps
             loss.backward()
+            optimizer.step()
             
-            # Accumulate batch count
-            batch_count += 1
-            
-            # Update weights only after accumulating specified number of batches
-            if batch_count % accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-            
-            # Track metrics (use the original loss, not the scaled one)
-            train_loss += loss.item() * accumulation_steps  # Rescale loss for tracking
-            
+            train_loss += loss.item()
             # Compute accuracy: assume data.y is of shape [num_graphs] or [num_graphs, 1]
             _, pred = torch.max(output, 1)
             train_acc += (pred == data.y.squeeze()).float().sum().item()
@@ -51,18 +33,14 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
             train_preds.extend(pred.cpu().numpy().flatten())
             train_labels.extend(data.y.cpu().numpy().flatten())
         
-        # Handle any remaining gradients at the end of epoch
-        if batch_count % accumulation_steps != 0:
-            optimizer.step()
-            optimizer.zero_grad()
-            
         epoch_loss = train_loss / len(train_loader)
         epoch_accuracy = train_acc / train_dataset_len
 
     else:
         for data, label in train_loader:
             data, label = data.to(device), label.to(device)
-            
+            optimizer.zero_grad()
+    
             # Special handling for transformer models
             if is_transformer:
                 # Check if it's an encoder-only or encoder-decoder transformer
@@ -91,30 +69,15 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
                 
                 loss = criterion(output, label)
                 _, pred = torch.max(output, 1)
-            
-            # Scale the loss according to accumulation steps
-            loss = loss / accumulation_steps
-            loss.backward()
-            
-            # Accumulate batch count
-            batch_count += 1
-            
-            # Update weights only after accumulating specified number of batches
-            if batch_count % accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
     
-            # Track metrics (use the original loss, not the scaled one)
-            train_loss += loss.item() * accumulation_steps  # Rescale loss for tracking
+            loss.backward()
+            optimizer.step()
+    
+            train_loss += loss.item()
             train_acc += (pred == label).float().sum().item()
-
+            # TODO FIX THIS BASED ON label_flat
             train_preds.extend(pred.cpu().numpy().flatten())
             train_labels.extend(label.cpu().numpy().flatten())
-        
-        # Handle any remaining gradients at the end of epoch
-        if batch_count % accumulation_steps != 0:
-            optimizer.step()
-            optimizer.zero_grad()
             
         metrics = {
             "train_labels": np.array(train_preds),

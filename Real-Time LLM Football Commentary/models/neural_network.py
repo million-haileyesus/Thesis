@@ -2,13 +2,18 @@ import torch.nn as nn
 
 
 class NeuralNetwork(nn.Module):
-    def __init__(self, input_size, num_classes, num_hidden_layers, hidden_size, dropout_rate):
+    def __init__(self, input_size, num_classes, num_hidden_layers, hidden_size, dropout_rate, use_batch_norm=True):
         super().__init__()
         self.layers = nn.ModuleList()
         
+        if use_batch_norm:
+             self.norm_ = nn.BatchNorm1d(hidden_size)
+        else:
+             self.norm_ = nn.LayerNorm(hidden_size)
+        
         self.layers.extend([
             nn.Linear(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            self.norm_,
             nn.ReLU(),
             nn.Dropout(dropout_rate)
         ])
@@ -16,7 +21,7 @@ class NeuralNetwork(nn.Module):
         for _ in range(num_hidden_layers - 1):
             self.layers.extend([
                 nn.Linear(hidden_size, hidden_size),
-                nn.BatchNorm1d(hidden_size),
+                self.norm_,
                 nn.ReLU(),
                 nn.Dropout(dropout_rate)
             ])
