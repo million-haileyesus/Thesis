@@ -128,10 +128,19 @@ class DistanceAwareMultiheadAttention(nn.MultiheadAttention):
             # Expected bias shape: [batch_size, seq_len_q, seq_len_k]
 
             # Expand bias for heads: [batch_size, seq_len_q, seq_len_k] -> [batch_size, 1, seq_len_q, seq_len_k] -> [batch_size, num_heads, seq_len_q, seq_len_k] -> [batch_size * num_heads, seq_len_q, seq_len_k]
+            
             distance_bias = distance_bias.unsqueeze(1).repeat(1, self.num_heads, 1, 1)
+
+            seq_len_q = distance_bias.size(2)
+            seq_len_k = distance_bias.size(3)
+
             distance_bias = distance_bias.view(batch_size * self.num_heads, seq_len_q, seq_len_k)
 
-            attn_scores = attn_scores + distance_bias # Add bias BEFORE softmax
+            # Assuming distance_bias has shape [B, H, 50, 22]
+            padding = torch.zeros((batch_size * self.num_heads, seq_len_q, seq_len_q - seq_len_k), device=distance_bias.device)
+            distance_bias_padded = torch.cat([distance_bias, padding], dim=-1)  # Now shape [B, H, 50, 50]
+
+            attn_scores = attn_scores + distance_bias_padded # Add bias BEFORE softmax
 
         # --- 5. Apply Masks (Additive attn_mask, Boolean key_padding_mask) ---
         if attn_mask is not None:
