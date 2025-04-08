@@ -118,7 +118,7 @@ def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, 
 
     return fig
 
-def plot_accuracy_history(history: dict, title: str = ""):
+def plot_accuracy_history(history: dict[str, list], title: str = ""):
     """
     Plot learning curves from training history.
     
@@ -222,7 +222,10 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
         # Calculate speed (distance / time)
         # Note: First row will be NaN as we can't calculate speed for a single point
         velocity = distance / time_diff
-        direction_rad = np.arctan2(y_diff, x_diff)
+
+        vel_x = x_diff / time_diff
+        vel_y = y_diff / time_diff
+        direction_rad = np.arctan2(vel_y, vel_x)
         
         # Convert to degrees and normalize to 0-360°
         direction_deg = np.degrees(direction_rad)
@@ -278,7 +281,10 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame) -> pd.DataF
         # Note: First row will be NaN as we can't calculate speed for a single point
         velocity = distance / time_diff
         acceleration = velocity.diff() / time_diff
-        direction_rad = np.arctan2(y_diff, x_diff)
+        
+        vel_x = x_diff / time_diff
+        vel_y = y_diff / time_diff
+        direction_rad = np.arctan2(vel_y, vel_x)
         
         # Convert to degrees and normalize to 0-360°
         direction_deg = np.degrees(direction_rad)
