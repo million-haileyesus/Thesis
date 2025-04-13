@@ -3,7 +3,9 @@ import pandas as pd
 import polars as pl
 import matplotlib.pyplot as plt
 import seaborn as sns
+
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
+from sklearn.preprocessing import MinMaxScaler
 
 
 def process_event_data(event_data, full_data):
@@ -192,7 +194,7 @@ def calculate_velocity_acceleration(dataset: pd.DataFrame) -> pd.DataFrame:
     return temp_data
 
 
-def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
+def calculate_velocity_direction(dataset: pd.DataFrame, normalize: bool = True) -> pd.DataFrame:
     """
     Calculates the velocity and direction of players and ball in a given dataset.
 
@@ -214,7 +216,6 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
         y_diff = temp_data[ply_y].diff()
 
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
-        min_movement = 0.0001
 
         # Calculate time difference between frames
         time_diff = temp_data["Frame"].diff()
@@ -231,25 +232,27 @@ def calculate_velocity_direction(dataset: pd.DataFrame) -> pd.DataFrame:
         direction_deg = np.degrees(direction_rad)
         direction_deg = (direction_deg + 360) % 360
 
-        mask = distance < min_movement
-        direction_deg[mask] = np.nan
-        direction_deg = direction_deg.ffill()
+        direction_sine = np.sin(np.deg2rad(direction_deg))
 
         if "ball" in str(ply_x).lower():
-            temp_data[f"Ball_velocity"] = velocity
-            temp_data[f"Ball_direction"] = direction_deg
+            scaler = MinMaxScaler(feature_range=(-1, 1))
+            
+            temp_data[f"Ball_velocity"] = scaler.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
+            temp_data[f"Ball_direction"] = direction_sine
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
 
-            temp_data[f"P_{players_num}_velocity"] = velocity
-            temp_data[f"P_{players_num}_direction"] = direction_deg
+            scaler = MinMaxScaler(feature_range=(-1, 1))
+            
+            temp_data[f"P_{players_num}_velocity"] = scaler.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
+            temp_data[f"P_{players_num}_direction"] = direction_sine
 
     return temp_data
 
 
-def calculate_velocity_acceleration_direction(dataset: pd.DataFrame) -> pd.DataFrame:
+def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: bool = True) -> pd.DataFrame:
     """
     Calculates the velocity, acceleration and direction of players and ball in a given dataset.
 
@@ -270,8 +273,6 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame) -> pd.DataF
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
 
-        min_movement = 0.0001
-
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
 
         # Calculate time difference between frames
@@ -290,22 +291,26 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame) -> pd.DataF
         direction_deg = np.degrees(direction_rad)
         direction_deg = (direction_deg + 360) % 360
 
-        mask = distance < min_movement
-        direction_deg[mask] = np.nan
-        direction_deg = direction_deg.ffill()
+        direction_sine = np.sin(np.deg2rad(direction_deg))
 
         if "ball" in str(ply_x).lower():
-            temp_data[f"Ball_velocity"] = velocity
-            temp_data[f"Ball_acceleration"] = acceleration
-            temp_data[f"Ball_direction"] = direction_deg
+            scaler_1 = MinMaxScaler(feature_range=(-1, 1))
+            scaler_2 = MinMaxScaler(feature_range=(-1, 1))
+            
+            temp_data[f"Ball_velocity"] = scaler_1.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
+            temp_data[f"Ball_acceleration"] = scaler_2.fit_transform(acceleration.values.reshape(-1, 1)) if normalize else acceleration
+            temp_data[f"Ball_direction"] = direction_sine
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
 
-            temp_data[f"P_{players_num}_velocity"] = velocity
-            temp_data[f"P_{players_num}_acceleration"] = acceleration
-            temp_data[f"P_{players_num}_direction"] = direction_deg
+            scaler_1 = MinMaxScaler(feature_range=(-1, 1))
+            scaler_2 = MinMaxScaler(feature_range=(-1, 1))
+            
+            temp_data[f"P_{players_num}_velocity"] = scaler_1.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
+            temp_data[f"P_{players_num}_acceleration"] = scaler_2.fit_transform(acceleration.values.reshape(-1, 1)) if normalize else acceleration
+            temp_data[f"P_{players_num}_direction"] = direction_sine
 
     return temp_data
 

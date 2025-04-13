@@ -5,15 +5,20 @@ from torch_geometric.nn import GCNConv, global_mean_pool
 
 
 class GNN(torch.nn.Module):
-    def __init__(self, input_size, hidden_size, num_hidden_layers, num_classes, dropout_rate):
+    def __init__(self, input_size, hidden_size, num_hidden_layers, num_classes, dropout_rate, use_batch_norm=True):
         super(GNN, self).__init__()
         
         self.layers = nn.ModuleList()
+
+        if use_batch_norm:
+            norm_layer = nn.BatchNorm1d(hidden_size) 
+        else:
+            norm_layer = nn.LayerNorm(hidden_size)
         
         # First GCN layer
         self.layers.extend([
             GCNConv(input_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            norm_layer,
             nn.ReLU(),
             nn.Dropout(dropout_rate)
         ])
@@ -22,7 +27,7 @@ class GNN(torch.nn.Module):
         for _ in range(num_hidden_layers - 1):
             self.layers.extend([
                 GCNConv(hidden_size, hidden_size),
-                nn.BatchNorm1d(hidden_size),
+                norm_layer,
                 nn.ReLU(),
                 nn.Dropout(dropout_rate)
             ])

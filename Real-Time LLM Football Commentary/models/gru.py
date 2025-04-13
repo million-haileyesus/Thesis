@@ -3,16 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, encoder_norm_layer):
         super(Encoder, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         
         # Input normalization
-        self.input_bn = nn.BatchNorm1d(input_size)
+        self.input_bn = encoder_norm_layer
         
         # GRU for encoding input sequence
-        # CHANGE: Replace nn.LSTM with nn.GRU
         self.gru = nn.GRU(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -24,7 +23,6 @@ class Encoder(nn.Module):
         self.init_weights()
         
     def init_weights(self):
-        # CHANGE: Adjust parameter names if needed for GRU (usually similar to LSTM)
         for name, param in self.gru.named_parameters():
             if "weight" in name:
                 nn.init.kaiming_uniform_(param)
@@ -45,17 +43,16 @@ class Encoder(nn.Module):
         # CHANGE: Use self.gru and unpack only one state (hidden)
         outputs, hidden = self.gru(x)
         
-        return outputs, hidden  # Removed cell state
+        return outputs, hidden
 
 class Decoder(nn.Module):
-    def __init__(self, hidden_size, num_layers, dropout_rate, num_classes):
+    def __init__(self, hidden_size, num_layers, dropout_rate, num_classes, decoder_norm_layer):
         super(Decoder, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.num_classes = num_classes
 
         # GRU for decoding
-        # CHANGE: Replace nn.LSTM with nn.GRU
         self.gru = nn.GRU(
             input_size=num_classes,
             hidden_size=hidden_size,
@@ -65,12 +62,12 @@ class Decoder(nn.Module):
         )
         
         # Hidden state normalization
-        self.hidden_bn = nn.BatchNorm1d(hidden_size)
+        self.hidden_bn = decoder_norm_layer
         
         # Output projection remains the same
         self.fc = nn.Sequential(
             nn.Linear(hidden_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
+            decoder_norm_layer,
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(hidden_size, num_classes)
@@ -173,27 +170,34 @@ class Decoder(nn.Module):
         return output, hidden
 
 class GRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes, decoder_num_layers=None):
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes, decoder_num_layers=None, use_batch_norm=True):
         super(GRU, self).__init__()
         
         # If decoder_num_layers is not specified, use the same as encoder
         if decoder_num_layers is None:
             decoder_num_layers = num_layers
+
+        if use_batch_norm:
+            encoder_norm_layer = nn.BatchNorm1d(input_size) 
+            decoder_norm_layer = nn.BatchNorm1d(hidden_size) 
+        else:
+            encoder_norm_layer = nn.LayerNorm(input_size)
+            decoder_norm_layer = nn.LayerNorm(hidden_size)
         
-        self.encoder = Encoder(input_size, hidden_size, num_layers, dropout_rate)
+        self.encoder = Encoder(input_size, hidden_size, num_layers, dropout_rate, encoder_norm_layer)
         
         # Flag to determine if we're using encoder-only architecture
         self.encoder_only = (decoder_num_layers == 0)
         
         # Create decoder only if needed
         if not self.encoder_only:
-            self.decoder = Decoder(hidden_size, decoder_num_layers, dropout_rate, num_classes)
+            self.decoder = Decoder(hidden_size, decoder_num_layers, dropout_rate, num_classes, decoder_norm_layer)
         
         # For encoder-only model, add a classification head
         if self.encoder_only:
             self.classifier = nn.Sequential(
                 nn.Linear(hidden_size, hidden_size),
-                nn.BatchNorm1d(hidden_size),
+                decoder_norm_layer,
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
                 nn.Linear(hidden_size, num_classes)
@@ -229,7 +233,7 @@ class GRU(nn.Module):
             # Apply classifier to each position in the sequence
             encoder_outputs_flat = encoder_outputs.reshape(-1, hidden_size)
             output_flat = self.classifier[0](encoder_outputs_flat)  # Linear
-            output_flat = self.classifier[1](output_flat)           # BatchNorm
+            output_flat = self.classifier[1](output_flat)           # Norm
             output_flat = self.classifier[2](output_flat)           # ReLU
             output_flat = self.classifier[3](output_flat)           # Dropout
             output_flat = self.classifier[4](output_flat)           # Final linear
