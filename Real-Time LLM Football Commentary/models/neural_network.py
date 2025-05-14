@@ -4,6 +4,8 @@ import torch.nn as nn
 class NeuralNetwork(nn.Module):
     def __init__(self, input_size, num_classes, num_hidden_layers, hidden_size, dropout_rate, use_batch_norm=True):
         super().__init__()
+        
+        self.num_classes = num_classes
         self.layers = nn.ModuleList()
         
         self.layers.append(nn.Linear(input_size, hidden_size))

@@ -227,25 +227,33 @@ class TransformerDecoder(nn.Module):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
+        
 
 class Transformer(nn.Module):
     def __init__(self, input_size, d_model, nhead, num_encoder_layers, num_decoder_layers, 
                  dim_feedforward, dropout_rate, num_classes):
         super(Transformer, self).__init__()
-        
-        self.encoder = TransformerEncoder(
-            input_size, d_model, nhead, num_encoder_layers, dim_feedforward, dropout_rate
-        )
-        
-        # Flag to determine if we're using encoder-only architecture
+
+        self.num_classes = num_classes
+        # Flag to determine if we're using encoder-only or decoder-only architecture
         self.encoder_only = (num_decoder_layers == 0)
+        self.decoder_only = (num_encoder_layers == 0)
+
+        # Create encoder only if needed
+        if not self.decoder_only:        
+            self.encoder = TransformerEncoder(
+                input_size, d_model, nhead, num_encoder_layers, dim_feedforward, dropout_rate
+            )
         
         # Create decoder only if needed
         if not self.encoder_only:
+            self.input_embedding = nn.Linear(input_size, d_model)
+            self.input_positional_encoding = PositionalEncoding(d_model, dropout=dropout_rate)
+
             self.decoder = TransformerDecoder(
                 d_model, nhead, num_decoder_layers, dim_feedforward, dropout_rate, num_classes
             )
-        
+
         # For encoder-only model, add a classification head
         if self.encoder_only:
             self.classifier = nn.Sequential(
@@ -282,11 +290,11 @@ class Transformer(nn.Module):
         src_mask = None
         src_key_padding_mask = None
         
-        # Encode input sequence
-        memory = self.encoder(src, src_mask, src_key_padding_mask)
-        
         # For encoder-only architecture, apply classification head directly
         if self.encoder_only:
+            # Encode input sequence
+            memory = self.encoder(src, src_mask, src_key_padding_mask)
+            
             batch_size, seq_len, d_model = memory.shape
             
             # Apply classifier to each position in the sequence
@@ -302,7 +310,10 @@ class Transformer(nn.Module):
             return outputs
         
         # For encoder-decoder architecture, use the decoder
-        else:
+        if not (self.encoder_only or self.decoder_only):
+            # Encode input sequence
+            memory = self.encoder(src, src_mask, src_key_padding_mask)
+            
             memory_mask = None
             tgt_key_padding_mask = None
             memory_key_padding_mask = None
@@ -321,3 +332,30 @@ class Transformer(nn.Module):
             )
             
             return outputs
+
+        # For decoder-only architecture
+        if self.decoder_only:
+            src_embedded = self.input_embedding(src)
+            src_embedded = self.input_positional_encoding(src_embedded)
+            
+            batch_size, seq_len, _ = src_embedded.shape
+
+            # Create dummy encoder output (memory) with correct shape
+            dummy_memory = torch.zeros(batch_size, 1, self.decoder.d_model).to(src.device)
+            
+            # Generate tgt mask
+            tgt_mask = self.decoder.generate_square_subsequent_mask(seq_len).to(src.device)
+            
+            outputs = self.decoder(
+                encoder_output=dummy_memory,  # Decoder-only: dummy memory tensor
+                tgt=src_embedded,     # Pass in src_embedded as tgt
+                tgt_length=seq_len,
+                tgt_mask=tgt_mask,
+                memory_mask=None,
+                tgt_key_padding_mask=None,
+                memory_key_padding_mask=None,
+                teacher_forcing_ratio=0.0  # No teacher forcing in decoder-only mode
+            )
+            
+            return outputs
+

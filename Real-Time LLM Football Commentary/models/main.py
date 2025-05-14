@@ -20,7 +20,7 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
         scheduler = get_scheduler(optimizer)
 
     history = {"training_accuracy": [], "validation_accuracy": []}
-    width = len(str(epochs - 1))
+    width = len(str(epochs))
     
     for epoch in range(1, epochs + 1):
         train_loss, train_acc, train_metrics = train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn=is_rnn, is_gnn=is_gnn, is_transformer=is_transformer)

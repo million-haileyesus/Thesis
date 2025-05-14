@@ -169,7 +169,8 @@ class Decoder(nn.Module):
 class LSTM(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout_rate, num_classes, decoder_num_layers=None, use_batch_norm=True):
         super(LSTM, self).__init__()
-        
+
+        self.num_classes = num_classes
         # If decoder_num_layers is not specified, use the same as encoder
         if decoder_num_layers is None:
             decoder_num_layers = num_layers

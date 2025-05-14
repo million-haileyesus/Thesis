@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import precision_score, recall_score, f1_score
+from torch.amp import autocast, GradScaler
 
 
 def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, is_gnn, is_transformer):
@@ -15,16 +16,23 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
 
     train_dataset_len = len(train_loader.dataset)
 
+    scaler = GradScaler()
+
     if is_gnn:
         # For GNN models, the DataLoader yields a PyG Data object.
         for data in train_loader:
             data = data.to(device)
-            optimizer.zero_grad()
-            output = model(data)  # forward pass
-            loss = criterion(output, data.y)
-            loss.backward()
-            optimizer.step()
             
+            optimizer.zero_grad()
+
+            with autocast(device_type="cuda", dtype=torch.float16):
+                output = model(data)  # forward pass
+                loss = criterion(output, data.y)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        
             train_loss += loss.item()
             # Compute accuracy: assume data.y is of shape [num_graphs] or [num_graphs, 1]
             _, pred = torch.max(output, 1)
@@ -37,45 +45,46 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
         epoch_accuracy = train_acc / train_dataset_len
 
     else:
+        # data is of shape [batch_size, seq_len, feature_size] or [batch_size, feature_size]
         for data, label in train_loader:
             data, label = data.to(device), label.to(device)
             optimizer.zero_grad()
-    
-            # Special handling for transformer models
-            if is_transformer:
-                # Check if it's an encoder-only or encoder-decoder transformer
-                is_encoder_only = hasattr(model, 'encoder_only') and model.encoder_only
-                
-                if is_encoder_only:
-                    # Encoder-only case - simpler forward pass
-                    output = model(data)
+            
+            with autocast(device_type="cuda", dtype=torch.float16):
+                # Special handling for transformer models
+                if is_transformer:
+                    # Check if it's an encoder-only or decoder-only transformer
+                    is_encoder_only = hasattr(model, "encoder_only") and model.encoder_only
+                    is_decoder_only = hasattr(model, "decoder_only") and model.decoder_only
+                    
+                    # Forward pass based on architecture type
+                    if is_encoder_only or is_decoder_only:
+                        # Simpler forward pass for encoder-only or decoder-only
+                        output = model(data)
+                    else:
+                        # Encoder-decoder transformer with teacher forcing
+                        num_classes = model.num_classes
+                        label_onehot = F.one_hot(label, num_classes=num_classes).float()
+                        output = model(data, label_onehot, teacher_forcing_ratio=0.5)
                 else:
-                    # Encoder-decoder transformer with teacher forcing
-                    num_classes = model.decoder.num_classes
-                    label_onehot = F.one_hot(label, num_classes=num_classes).float()
-                    output = model(data, label_onehot, teacher_forcing_ratio=0.5)
+                    output = model(data)
                 
-                # Reshape for loss calculation
-                output_flat = output.reshape(-1, output.size(2))
-                label_flat = label.reshape(-1)
-                loss = criterion(output_flat, label_flat)
+                # Reshape for loss calculation for rnn and transformer
+                if len(data.size()) == 3:
+                    output = output.permute(0, 2, 1)
+                    
+                loss = criterion(output, label)
                 
                 # Get predictions from the output
-                _, pred = torch.max(output, 2)
-            else:
-                output = model(data)
-                if is_rnn:
-                    output = output.permute(0, 2, 1)
-                
-                loss = criterion(output, label)
                 _, pred = torch.max(output, 1)
-    
-            loss.backward()
-            optimizer.step()
-    
+                
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            
             train_loss += loss.item()
             train_acc += (pred == label).float().sum().item()
-            # TODO FIX THIS BASED ON label_flat
+
             train_preds.extend(pred.cpu().numpy().flatten())
             train_labels.extend(label.cpu().numpy().flatten())
             
@@ -93,7 +102,6 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
     
     return epoch_loss, epoch_accuracy, metrics
 
-
 def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_gnn, is_transformer):
     model.eval()
     val_loss = 0.0
@@ -108,8 +116,11 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
         if is_gnn:
             for data in validation_loader:
                 data = data.to(device)
-                output = model(data)
-                loss = criterion(output, data.y)
+                
+                with autocast(device_type="cuda", dtype=torch.float16):
+                    output = model(data)
+                    loss = criterion(output, data.y)
+                
                 val_loss += loss.item()
                 
                 _, pred = torch.max(output, 1)
@@ -121,24 +132,25 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
             for data, label in validation_loader:
                 data, label = data.to(device), label.to(device)
                 
-                # Special handling for transformer models
-                if is_transformer:
-                    # During validation, don't use teacher forcing
-                    output = model(data, teacher_forcing_ratio=0.0)
-                    
-                    # Reshape for loss calculation
-                    output_flat = output.reshape(-1, output.size(2))
-                    label_flat = label.reshape(-1)
-                    loss = criterion(output_flat, label_flat)
-                    
-                    # Get predictions
-                    _, pred = torch.max(output, 2)
-                else:
-                    output = model(data)
-                    if is_rnn:
-                        output = output.permute(0, 2, 1)
+                with autocast(device_type="cuda", dtype=torch.float16):
+                    # Special handling for transformer models
+                    if is_transformer:
+                        # Check architecture type for proper handling
+                        is_encoder_only = hasattr(model, "encoder_only") and model.encoder_only
+                        is_decoder_only = hasattr(model, "decoder_only") and model.decoder_only
+                        
+                        # During validation, don't use teacher forcing
+                        output = model(data, teacher_forcing_ratio=0.0)
+                    else:
+                        output = model(data)
                 
+                    # Reshape for loss calculation for rnn and transformer
+                    if len(data.size()) == 3:
+                        output = output.permute(0, 2, 1)
+                        
                     loss = criterion(output, label)
+                    
+                    # Get predictions from the output
                     _, pred = torch.max(output, 1)
                 
                 val_loss += loss.item()
@@ -163,3 +175,4 @@ def validate_one_epoch(model, validation_loader, criterion, device, is_rnn, is_g
     }
 
     return epoch_loss, epoch_accuracy, metrics
+
