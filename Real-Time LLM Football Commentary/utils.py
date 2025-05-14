@@ -265,53 +265,81 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
     temp_data = dataset.copy()
     start_idx = temp_data.columns.get_loc("Time [s]")
     player_columns = temp_data.columns[start_idx + 1:]
-
+    
+    # Store all velocities/accelerations for global scaling
+    all_velocities = []
+    all_accelerations = []
+    player_vel_mapping = {}
+    player_acc_mapping = {}
+    
+    # First calculate all values
     for i in range(0, player_columns.shape[0] - 1, 2):
-        # Calculate Euclidean distance between consecutive points
         ply_x, ply_y = player_columns[i], player_columns[i + 1]
-
+        
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
-
-        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
-
-        # Calculate time difference between frames
         time_diff = temp_data["Frame"].diff()
-
-        # Calculate speed (distance / time)
-        # Note: First row will be NaN as we can't calculate speed for a single point
+        
+        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
         velocity = distance / time_diff
         acceleration = velocity.diff() / time_diff
         
-        vel_x = x_diff / time_diff
-        vel_y = y_diff / time_diff
-        direction_rad = np.arctan2(vel_y, vel_x)
-        
-        # Convert to degrees and normalize to 0-360°
-        direction_deg = np.degrees(direction_rad)
-        direction_deg = (direction_deg + 360) % 360
-
-        direction_sine = np.sin(np.deg2rad(direction_deg))
-
-        if "ball" in str(ply_x).lower():
-            scaler_1 = MinMaxScaler(feature_range=(-1, 1))
-            scaler_2 = MinMaxScaler(feature_range=(-1, 1))
-            
-            temp_data[f"Ball_velocity"] = scaler_1.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
-            temp_data[f"Ball_acceleration"] = scaler_2.fit_transform(acceleration.values.reshape(-1, 1)) if normalize else acceleration
-            temp_data[f"Ball_direction"] = direction_sine
+        # Store velocity and accelerations for later scaling
+        if "Ball" in ply_x:
+            player_vel_mapping["Ball"] = velocity
+            player_acc_mapping["Ball"] = acceleration
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
-
-            scaler_1 = MinMaxScaler(feature_range=(-1, 1))
-            scaler_2 = MinMaxScaler(feature_range=(-1, 1))
-            
-            temp_data[f"P_{players_num}_velocity"] = scaler_1.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
-            temp_data[f"P_{players_num}_acceleration"] = scaler_2.fit_transform(acceleration.values.reshape(-1, 1)) if normalize else acceleration
-            temp_data[f"P_{players_num}_direction"] = direction_sine
-
+            player_vel_mapping[f"P_{players_num}"] = velocity
+            player_acc_mapping[f"P_{players_num}"] = acceleration
+        
+        all_velocities.extend(velocity.dropna().tolist())
+        all_accelerations.extend(acceleration.dropna().tolist())
+        
+        # Calculate direction separately
+        vel_x = x_diff / time_diff
+        vel_y = y_diff / time_diff
+        direction_rad = np.arctan2(vel_y, vel_x)
+        
+        # Using both sine and cosine for complete representation
+        direction_sine = np.sin(direction_rad)
+        direction_cosine = np.cos(direction_rad)
+        
+        if "Ball" in ply_x:
+            temp_data[f"Ball_direction_sin"] = direction_sine
+            temp_data[f"Ball_direction_cos"] = direction_cosine
+        else:
+            temp_data[f"P_{players_num}_direction_sin"] = direction_sine
+            temp_data[f"P_{players_num}_direction_cos"] = direction_cosine
+    
+    # Apply global scaling
+    if normalize:
+        scaler_vel = MinMaxScaler(feature_range=(-1, 1))
+        scaler_acc = MinMaxScaler(feature_range=(-1, 1))
+        
+        # Fit the scalers on all values
+        scaler_vel.fit(np.array(all_velocities).reshape(-1, 1))
+        scaler_acc.fit(np.array(all_accelerations).reshape(-1, 1))
+        
+        # Apply the scalers to each player's values
+        for entity, values in player_vel_mapping.items():
+            if entity == "Ball":
+                temp_data[f"Ball_velocity"] = scaler_vel.transform(values.values.reshape(-1, 1))
+                temp_data[f"Ball_acceleration"] = scaler_acc.transform(player_acc_mapping[entity].values.reshape(-1, 1))
+            else:
+                temp_data[f"{entity}_velocity"] = scaler_vel.transform(values.values.reshape(-1, 1))
+                temp_data[f"{entity}_acceleration"] = scaler_acc.transform(player_acc_mapping[entity].values.reshape(-1, 1))
+    else:
+        for entity, values in player_vel_mapping.items():
+            if entity == "Ball":
+                temp_data[f"Ball_velocity"] = values
+                temp_data[f"Ball_acceleration"] = player_acc_mapping[entity]
+            else:
+                temp_data[f"{entity}_velocity"] = values
+                temp_data[f"{entity}_acceleration"] = player_acc_mapping[entity]
+    
     return temp_data
 
 
