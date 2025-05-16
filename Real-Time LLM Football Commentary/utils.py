@@ -327,7 +327,7 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
             player_acc_mapping[entity] = scaler_acc.transform(player_acc_mapping[entity].values.reshape(-1, 1)).flatten()
     
     # Add columns to dataframe in the desired order: velocity, acceleration, direction
-    for entity in player_vel_mapping.keys():  # Sort to ensure consistent order
+    for entity in player_vel_mapping.keys():
         temp_data[f"{entity}_velocity"] = player_vel_mapping[entity]
         temp_data[f"{entity}_acceleration"] = player_acc_mapping[entity]
         temp_data[f"{entity}_direction_sin"] = player_sin_mapping[entity]
