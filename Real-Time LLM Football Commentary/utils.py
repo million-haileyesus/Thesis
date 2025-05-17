@@ -147,52 +147,79 @@ def plot_accuracy_history(history: dict[str, list], title: str = ""):
     plt.show()
 
 
-def calculate_velocity_acceleration(dataset: pd.DataFrame) -> pd.DataFrame:
+def calculate_velocity_acceleration(dataset: pd.DataFrame, normalize: bool = True) -> pd.DataFrame:
     """
     Calculates the velocity and acceleration of players and ball in a given dataset.
 
     Parameters:
         dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+        normalize (bool): Whether to normalize the calculated values.
 
     Returns:
         pandas.DataFrame: The original dataset with additional columns for velocity and acceleration.
     """
     temp_data = dataset.copy()
-    star_idx = temp_data.columns.get_loc("Time [s]")
-    player_columns = temp_data.columns[star_idx + 1:]
-
+    start_idx = temp_data.columns.get_loc("Time [s]")
+    player_columns = temp_data.columns[start_idx + 1:]
+    
+    # Store all velocities/accelerations for global scaling
+    all_velocities = []
+    all_accelerations = []
+    entity_vel_mapping = {}
+    entity_acc_mapping = {}
+    
+    # First calculate all values
     for i in range(0, player_columns.shape[0] - 1, 2):
-        # Calculate Euclidean distance between consecutive points
         ply_x, ply_y = player_columns[i], player_columns[i + 1]
-
+        
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
-
-        # Calculate time difference between frames
         time_diff = temp_data["Frame"].diff()
-
-        # Distance calculation
+        
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
-
-        # Velocity calculation
         velocity = distance / time_diff
-
-        # Acceleration calculation
         acceleration = velocity.diff() / time_diff
-
+        
+        # Calculate direction
+        vel_x = x_diff / time_diff
+        vel_y = y_diff / time_diff
+        
+        # Store values for later scaling and ordering
         if "Ball" in ply_x:
-            temp_data[f"Ball_velocity"] = velocity
-            temp_data[f"Ball_acceleration"] = acceleration
+            entity = "Ball"
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
-
-            temp_data[f"P_{players_num}_velocity"] = velocity
-            temp_data[f"P_{players_num}_acceleration"] = acceleration
-
+            entity = f"P_{players_num}"
+            
+        entity_vel_mapping[entity] = velocity
+        entity_acc_mapping[entity] = acceleration
+        
+        all_velocities.extend(velocity.dropna().tolist())
+        all_accelerations.extend(acceleration.dropna().tolist())
+    
+    # Apply global scaling if requested
+    if normalize:
+        scaler_vel = MinMaxScaler(feature_range=(-1, 1))
+        scaler_acc = MinMaxScaler(feature_range=(-1, 1))
+        
+        # Fit the scalers on all values
+        scaler_vel.fit(np.array(all_velocities).reshape(-1, 1))
+        scaler_acc.fit(np.array(all_accelerations).reshape(-1, 1))
+        
+        # Transform the values
+        for entity in entity_vel_mapping:
+            entity_vel_mapping[entity] = scaler_vel.transform(entity_vel_mapping[entity].values.reshape(-1, 1)).flatten()
+            entity_acc_mapping[entity] = scaler_acc.transform(entity_acc_mapping[entity].values.reshape(-1, 1)).flatten()
+    
+    # Add columns to dataframe in the desired order: velocity, acceleration, direction
+    for entity in entity_vel_mapping.keys():
+        temp_data[f"{entity}_velocity"] = entity_vel_mapping[entity]
+        temp_data[f"{entity}_acceleration"] = entity_acc_mapping[entity]
+    
     return temp_data
-
+    
 
 def calculate_velocity_direction(dataset: pd.DataFrame, normalize: bool = True) -> pd.DataFrame:
     """
@@ -200,6 +227,7 @@ def calculate_velocity_direction(dataset: pd.DataFrame, normalize: bool = True) 
 
     Parameters:
         dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
+        normalize (bool): Whether to normalize the calculated values.
 
     Returns:
         pandas.DataFrame: The original dataset with additional columns for velocity and direction.
@@ -207,48 +235,64 @@ def calculate_velocity_direction(dataset: pd.DataFrame, normalize: bool = True) 
     temp_data = dataset.copy()
     start_idx = temp_data.columns.get_loc("Time [s]")
     player_columns = temp_data.columns[start_idx + 1:]
-
+    
+    # Store all velocities/accelerations for global scaling
+    all_velocities = []
+    entity_vel_mapping = {}
+    entity_sin_mapping = {}
+    entity_cos_mapping = {}
+    
+    # First calculate all values
     for i in range(0, player_columns.shape[0] - 1, 2):
-        # Calculate Euclidean distance between consecutive points
         ply_x, ply_y = player_columns[i], player_columns[i + 1]
-
+        
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
-
-        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
-
-        # Calculate time difference between frames
         time_diff = temp_data["Frame"].diff()
-
-        # Calculate speed (distance / time)
-        # Note: First row will be NaN as we can't calculate speed for a single point
+        
+        distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
         velocity = distance / time_diff
-
+        
+        # Calculate direction
         vel_x = x_diff / time_diff
         vel_y = y_diff / time_diff
         direction_rad = np.arctan2(vel_y, vel_x)
         
-        # Convert to degrees and normalize to 0-360°
-        direction_deg = np.degrees(direction_rad)
-        direction_deg = (direction_deg + 360) % 360
-
-        direction_sine = np.sin(np.deg2rad(direction_deg))
-
-        if "ball" in str(ply_x).lower():
-            scaler = MinMaxScaler(feature_range=(-1, 1))
-            
-            temp_data[f"Ball_velocity"] = scaler.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
-            temp_data[f"Ball_direction"] = direction_sine
+        direction_sine = np.sin(direction_rad)
+        direction_cosine = np.cos(direction_rad)
+        
+        # Store values for later scaling and ordering
+        if "Ball" in ply_x:
+            entity = "Ball"
         else:
             players_num = ply_x[11]
             if len(ply_x) == 15:
                 players_num = ply_x[11:13]
-
-            scaler = MinMaxScaler(feature_range=(-1, 1))
+            entity = f"P_{players_num}"
             
-            temp_data[f"P_{players_num}_velocity"] = scaler.fit_transform(velocity.values.reshape(-1, 1)) if normalize else velocity
-            temp_data[f"P_{players_num}_direction"] = direction_sine
-
+        entity_vel_mapping[entity] = velocity
+        entity_sin_mapping[entity] = direction_sine
+        entity_cos_mapping[entity] = direction_cosine
+        
+        all_velocities.extend(velocity.dropna().tolist())
+    
+    # Apply global scaling if requested
+    if normalize:
+        scaler_vel = MinMaxScaler(feature_range=(-1, 1))
+        
+        # Fit the scalers on all values
+        scaler_vel.fit(np.array(all_velocities).reshape(-1, 1))
+        
+        # Transform the values
+        for entity in entity_vel_mapping:
+            entity_vel_mapping[entity] = scaler_vel.transform(entity_vel_mapping[entity].values.reshape(-1, 1)).flatten()
+    
+    # Add columns to dataframe in the desired order: velocity, acceleration, direction
+    for entity in entity_vel_mapping.keys():
+        temp_data[f"{entity}_velocity"] = entity_vel_mapping[entity]
+        temp_data[f"{entity}_direction_sin"] = entity_sin_mapping[entity]
+        temp_data[f"{entity}_direction_cos"] = entity_cos_mapping[entity]
+    
     return temp_data
 
 
@@ -270,10 +314,10 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
     # Store all velocities/accelerations for global scaling
     all_velocities = []
     all_accelerations = []
-    player_vel_mapping = {}
-    player_acc_mapping = {}
-    player_sin_mapping = {}
-    player_cos_mapping = {}
+    entity_vel_mapping = {}
+    entity_acc_mapping = {}
+    entity_sin_mapping = {}
+    entity_cos_mapping = {}
     
     # First calculate all values
     for i in range(0, player_columns.shape[0] - 1, 2):
@@ -304,10 +348,10 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
                 players_num = ply_x[11:13]
             entity = f"P_{players_num}"
             
-        player_vel_mapping[entity] = velocity
-        player_acc_mapping[entity] = acceleration
-        player_sin_mapping[entity] = direction_sine
-        player_cos_mapping[entity] = direction_cosine
+        entity_vel_mapping[entity] = velocity
+        entity_acc_mapping[entity] = acceleration
+        entity_sin_mapping[entity] = direction_sine
+        entity_cos_mapping[entity] = direction_cosine
         
         all_velocities.extend(velocity.dropna().tolist())
         all_accelerations.extend(acceleration.dropna().tolist())
@@ -322,16 +366,16 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
         scaler_acc.fit(np.array(all_accelerations).reshape(-1, 1))
         
         # Transform the values
-        for entity in player_vel_mapping:
-            player_vel_mapping[entity] = scaler_vel.transform(player_vel_mapping[entity].values.reshape(-1, 1)).flatten()
-            player_acc_mapping[entity] = scaler_acc.transform(player_acc_mapping[entity].values.reshape(-1, 1)).flatten()
+        for entity in entity_vel_mapping:
+            entity_vel_mapping[entity] = scaler_vel.transform(entity_vel_mapping[entity].values.reshape(-1, 1)).flatten()
+            entity_acc_mapping[entity] = scaler_acc.transform(entity_acc_mapping[entity].values.reshape(-1, 1)).flatten()
     
     # Add columns to dataframe in the desired order: velocity, acceleration, direction
-    for entity in player_vel_mapping.keys():
-        temp_data[f"{entity}_velocity"] = player_vel_mapping[entity]
-        temp_data[f"{entity}_acceleration"] = player_acc_mapping[entity]
-        temp_data[f"{entity}_direction_sin"] = player_sin_mapping[entity]
-        temp_data[f"{entity}_direction_cos"] = player_cos_mapping[entity]
+    for entity in entity_vel_mapping.keys():
+        temp_data[f"{entity}_velocity"] = entity_vel_mapping[entity]
+        temp_data[f"{entity}_acceleration"] = entity_acc_mapping[entity]
+        temp_data[f"{entity}_direction_sin"] = entity_sin_mapping[entity]
+        temp_data[f"{entity}_direction_cos"] = entity_cos_mapping[entity]
     
     return temp_data
 
