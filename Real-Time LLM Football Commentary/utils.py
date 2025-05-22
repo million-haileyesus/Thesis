@@ -278,12 +278,13 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
     return calculate_player_metrics(dataset, True, True, True, normalize)
 
 
-def add_shot_prediction_features(dataset: pd.DataFrame) -> pd.DataFrame:
+def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.12) -> pd.DataFrame:
     """
     Adds features to help identify shots based on ball trajectory and goal proximity.
     
     Parameters:
         dataset (pandas.DataFrame): Dataset with ball position and direction
+        goal_margin (float): Additional width beyond goal posts to consider for shot attempts
         
     Returns:
         pandas.DataFrame: Dataset with added shot prediction features
@@ -299,28 +300,27 @@ def add_shot_prediction_features(dataset: pd.DataFrame) -> pd.DataFrame:
     right_goal_x, right_goal_y = 1.0, 0.5
     goal_half_width = 0.04  # Half the goal width in normalized coordinates
     
+    # Define extended goal area for shot attempts (including off-target shots)
+    extended_goal_half_width = goal_half_width + goal_margin
+    
     # Calculate distances to each goal center
-    dist_to_left_goal = np.sqrt((ball_x - left_goal_x)**2 + (ball_y - left_goal_y)**2) * -1
+    dist_to_left_goal = np.sqrt((ball_x - left_goal_x)**2 + (ball_y - left_goal_y)**2)
     dist_to_right_goal = np.sqrt((ball_x - right_goal_x)**2 + (ball_y - right_goal_y)**2)
     
     # Add distance to nearest goal
-    nearest_goal_dist = np.minimum(np.abs(dist_to_left_goal), dist_to_right_goal)
+    nearest_goal_dist = np.minimum(dist_to_left_goal, dist_to_right_goal)
     temp_data["Ball_nearest_goal_distance"] = nearest_goal_dist
     
     # Determine which goal is closer (per row)
     is_left_goal_closer = dist_to_left_goal < dist_to_right_goal
     
-    # Make sure we have direction features
-    if "Ball_direction_sin" not in temp_data.columns or "Ball_direction_cos" not in temp_data.columns:
-        raise ValueError("Ball direction features are required (Ball_direction_sin and Ball_direction_cos)")
-    
-    # Get ball direction
+    # Get ball direction components
     sin_dir = temp_data["Ball_direction_sin"]
     cos_dir = temp_data["Ball_direction_cos"]
     
     # Calculate unit vector of ball direction
     dir_magnitude = np.sqrt(sin_dir**2 + cos_dir**2)
-    dir_magnitude = np.where(dir_magnitude < 1e-10, 1e-10, dir_magnitude)  # Avoid division by zero
+    dir_magnitude = np.where(dir_magnitude < 1e-10, 1e-10, dir_magnitude)
     
     unit_x = cos_dir / dir_magnitude
     unit_y = sin_dir / dir_magnitude
@@ -328,32 +328,67 @@ def add_shot_prediction_features(dataset: pd.DataFrame) -> pd.DataFrame:
     # Calculate base probabilities
     max_distance = np.sqrt(2)  # Maximum possible distance on a unit pitch
     
-    # Calculate for left goal
+    # Calculate for left goal with both regular and extended goal width
     t_left = np.where(np.abs(unit_x) > 1e-10, (left_goal_x - ball_x) / unit_x, np.inf)
     intersect_y_left = ball_y + t_left * unit_y
-    left_goal_intersect = (t_left > 0) & (intersect_y_left >= left_goal_y - goal_half_width) & (intersect_y_left <= left_goal_y + goal_half_width)
-    left_goal_probability = np.where(
-        left_goal_intersect,
+    
+    # Check for on-target shots
+    left_goal_on_target = (t_left > 0) & (intersect_y_left >= left_goal_y - goal_half_width) & (intersect_y_left <= left_goal_y + goal_half_width)
+    
+    # Check for all shot attempts (including off-target)
+    left_goal_attempt = (t_left > 0) & (intersect_y_left >= left_goal_y - extended_goal_half_width) & (intersect_y_left <= left_goal_y + extended_goal_half_width)
+    
+    # Calculate for off-target shots only
+    left_goal_off_target = left_goal_attempt & ~left_goal_on_target
+    
+    # Calculate probabilities with distance decay
+    left_on_target_prob = np.where(
+        left_goal_on_target,
         np.exp(-3 * np.abs(t_left) / max_distance),
         0
     )
-    in_left_penalty_area = (ball_x < 0.18) & (ball_y > 0.3) & (ball_y < 0.7)
-    left_goal_shot_prob = np.where(in_left_penalty_area, np.minimum(left_goal_probability * 1.5, 1), left_goal_probability)
     
-    # Calculate for right goal
+    # Reduced probability for off-target shots
+    left_off_target_prob = np.where(
+        left_goal_off_target,
+        np.exp(-3 * np.abs(t_left) / max_distance) * 0.7,  # 70% factor for off-target
+        0
+    )
+    
+    # Combine both probabilities
+    left_shot_prob = left_on_target_prob + left_off_target_prob
+    
+    # Apply penalty area boost
+    in_left_penalty_area = (ball_x < 0.18) & (ball_y > 0.3) & (ball_y < 0.7)
+    left_shot_prob = np.where(in_left_penalty_area, np.minimum(left_shot_prob * 1.5, 1.0), left_shot_prob)
+    
+    # Do the same for right goal
     t_right = np.where(np.abs(unit_x) > 1e-10, (right_goal_x - ball_x) / unit_x, np.inf)
     intersect_y_right = ball_y + t_right * unit_y
-    right_goal_intersect = (t_right > 0) & (intersect_y_right >= right_goal_y - goal_half_width) & (intersect_y_right <= right_goal_y + goal_half_width)
-    right_goal_probability = np.where(
-        right_goal_intersect,
+    
+    right_goal_on_target = (t_right > 0) & (intersect_y_right >= right_goal_y - goal_half_width) & (intersect_y_right <= right_goal_y + goal_half_width)
+    right_goal_attempt = (t_right > 0) & (intersect_y_right >= right_goal_y - extended_goal_half_width) & (intersect_y_right <= right_goal_y + extended_goal_half_width)
+    right_goal_off_target = right_goal_attempt & ~right_goal_on_target
+    
+    right_on_target_prob = np.where(
+        right_goal_on_target,
         np.exp(-3 * np.abs(t_right) / max_distance),
         0
     )
+    
+    right_off_target_prob = np.where(
+        right_goal_off_target,
+        np.exp(-3 * np.abs(t_right) / max_distance) * 0.7,
+        0
+    )
+    
+    right_shot_prob = right_on_target_prob + right_off_target_prob
+    
     in_right_penalty_area = (ball_x > 0.82) & (ball_y > 0.3) & (ball_y < 0.7)
-    right_goal_shot_prob = np.where(in_right_penalty_area, np.minimum(right_goal_probability * 1.5, 1), right_goal_probability)
+    right_shot_prob = np.where(in_right_penalty_area, np.minimum(right_shot_prob * 1.5, 1.0), right_shot_prob)
     
     # Choose probability based on which goal is closer
-    temp_data["Ball_shot_probability"] = np.where(is_left_goal_closer, left_goal_shot_prob, right_goal_shot_prob)
+    temp_data["Ball_shot_probability"] = np.where(is_left_goal_closer, left_shot_prob, right_shot_prob)
     
     return temp_data
 
