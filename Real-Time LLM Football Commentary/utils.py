@@ -243,10 +243,10 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
                 ).flatten()
     
     # Add calculated metrics to dataframe
-    entities = set()
+    entities = []
     for metric_type in entity_metrics:
         for entity in entity_metrics[metric_type]:
-            entities.add(entity)
+            entities.append(entity)
     
     for entity in entities:
         if calculate_velocity and entity in entity_metrics['velocity']:
