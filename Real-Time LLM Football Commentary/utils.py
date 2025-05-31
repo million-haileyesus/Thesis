@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.pipeline import Pipeline
 
 
 def process_event_data(event_data, full_data):
@@ -152,14 +153,14 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
                            normalize: bool = True) -> pd.DataFrame:
     """
     Calculates metrics (velocity, acceleration, direction) for players and ball in a given dataset.
-    
+
     Parameters:
         dataset (pandas.DataFrame): The input dataset containing player and ball positions over time.
         calculate_velocity (bool): Whether to calculate velocity.
         calculate_acceleration (bool): Whether to calculate acceleration.
         calculate_direction (bool): Whether to calculate direction.
         normalize (bool): Whether to normalize the calculated values.
-    
+
     Returns:
         pandas.DataFrame: The original dataset with additional columns for selected metrics.
     """
@@ -173,16 +174,16 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
     
     # Dictionaries to store calculated metrics by entity
     entity_metrics = {
-        'velocity': {},
-        'acceleration': {},
-        'direction_sin': {},
-        'direction_cos': {}
+        "velocity": {},
+        "acceleration": {},
+        "direction_sin": {},
+        "direction_cos": {}
     }
     
     # Calculate all values first
     for i in range(0, len(player_columns) - 1, 2):
         ply_x, ply_y = player_columns[i], player_columns[i + 1]
-        
+
         # Identify entity
         if "ball" in str(ply_x).lower():
             entity = "Ball"
@@ -196,50 +197,56 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
         x_diff = temp_data[ply_x].diff()
         y_diff = temp_data[ply_y].diff()
         time_diff = temp_data["Frame"].diff()
-        
+
         # Calculate distance and velocity
         distance = np.sqrt(x_diff ** 2 + y_diff ** 2)
         velocity = distance / time_diff
-        
+
         # Calculate velocity components for direction
         vel_x = x_diff / time_diff
         vel_y = y_diff / time_diff
         
         # Store values based on what metrics are needed
         if calculate_velocity:
-            entity_metrics['velocity'][entity] = velocity
+            entity_metrics["velocity"][entity] = velocity
             all_velocities.extend(velocity.fillna(0).tolist())
-        
+            
         # Calculate acceleration if needed
         if calculate_acceleration:
             acceleration = velocity.diff() / time_diff
-            entity_metrics['acceleration'][entity] = acceleration
+            entity_metrics["acceleration"][entity] = acceleration
             all_accelerations.extend(acceleration.fillna(0).tolist())
         
         # Calculate direction components if needed
         if calculate_direction:
             direction_rad = np.arctan2(vel_y, vel_x)
-            entity_metrics['direction_sin'][entity] = np.sin(direction_rad)
-            entity_metrics['direction_cos'][entity] = np.cos(direction_rad)
+            entity_metrics["direction_sin"][entity] = np.sin(direction_rad)
+            entity_metrics["direction_cos"][entity] = np.cos(direction_rad)
     
     # Apply global scaling if requested
     if normalize:
         if calculate_velocity and all_velocities:
-            scaler_vel = MinMaxScaler(feature_range=(-1, 1))
+            scaler_vel = Pipeline([
+                    ("scaler", StandardScaler()),
+                    # ("minmax_scaler", MinMaxScaler(feature_range=(-1, 1)))
+                ])
             scaler_vel.fit(np.array(all_velocities).reshape(-1, 1))
             
-            for entity in entity_metrics['velocity']:
-                entity_metrics['velocity'][entity] = scaler_vel.transform(
-                    entity_metrics['velocity'][entity].values.reshape(-1, 1)
+            for entity in entity_metrics["velocity"]:
+                entity_metrics["velocity"][entity] = scaler_vel.transform(
+                    entity_metrics["velocity"][entity].values.reshape(-1, 1)
                 ).flatten()
                 
         if calculate_acceleration and all_accelerations:
-            scaler_acc = MinMaxScaler(feature_range=(-1, 1))
+            scaler_acc = Pipeline([
+                    ("scaler", StandardScaler()),
+                    # ("minmax_scaler", MinMaxScaler(feature_range=(-1, 1)))
+                ])
             scaler_acc.fit(np.array(all_accelerations).reshape(-1, 1))
             
-            for entity in entity_metrics['acceleration']:
-                entity_metrics['acceleration'][entity] = scaler_acc.transform(
-                    entity_metrics['acceleration'][entity].values.reshape(-1, 1)
+            for entity in entity_metrics["acceleration"]:
+                entity_metrics["acceleration"][entity] = scaler_acc.transform(
+                    entity_metrics["acceleration"][entity].values.reshape(-1, 1)
                 ).flatten()
     
     # Add calculated metrics to dataframe
@@ -249,18 +256,18 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
             entities.append(entity)
     
     for entity in entities:
-        if calculate_velocity and entity in entity_metrics['velocity']:
-            temp_data[f"{entity}_velocity"] = entity_metrics['velocity'][entity]
+        if calculate_velocity and entity in entity_metrics["velocity"]:
+            temp_data[f"{entity}_velocity"] = entity_metrics["velocity"][entity]
         
-        if calculate_acceleration and entity in entity_metrics['acceleration']:
-            temp_data[f"{entity}_acceleration"] = entity_metrics['acceleration'][entity]
+        if calculate_acceleration and entity in entity_metrics["acceleration"]:
+            temp_data[f"{entity}_acceleration"] = entity_metrics["acceleration"][entity]
         
         if calculate_direction:
-            if entity in entity_metrics['direction_sin']:
-                temp_data[f"{entity}_direction_sin"] = entity_metrics['direction_sin'][entity]
-            if entity in entity_metrics['direction_cos']:
-                temp_data[f"{entity}_direction_cos"] = entity_metrics['direction_cos'][entity]
-    
+            if entity in entity_metrics["direction_sin"]:
+                temp_data[f"{entity}_direction_sin"] = entity_metrics["direction_sin"][entity]
+            if entity in entity_metrics["direction_cos"]:
+                temp_data[f"{entity}_direction_cos"] = entity_metrics["direction_cos"][entity]
+
     return temp_data
 
 
@@ -278,14 +285,14 @@ def calculate_velocity_acceleration_direction(dataset: pd.DataFrame, normalize: 
     return calculate_player_metrics(dataset, True, True, True, normalize)
 
 
-def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.12) -> pd.DataFrame:
+def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.15) -> pd.DataFrame:
     """
     Adds features to help identify shots based on ball trajectory and goal proximity.
-    
+
     Parameters:
         dataset (pandas.DataFrame): Dataset with ball position and direction
         goal_margin (float): Additional width beyond goal posts to consider for shot attempts
-        
+
     Returns:
         pandas.DataFrame: Dataset with added shot prediction features
     """
@@ -306,24 +313,13 @@ def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.1
     # Calculate distances to each goal center
     dist_to_left_goal = np.sqrt((ball_x - left_goal_x)**2 + (ball_y - left_goal_y)**2)
     dist_to_right_goal = np.sqrt((ball_x - right_goal_x)**2 + (ball_y - right_goal_y)**2)
-    
-    # Add distance to nearest goal
-    nearest_goal_dist = np.minimum(dist_to_left_goal, dist_to_right_goal)
-    temp_data["Ball_nearest_goal_distance"] = nearest_goal_dist
-    
+        
     # Determine which goal is closer (per row)
     is_left_goal_closer = dist_to_left_goal < dist_to_right_goal
     
-    # Get ball direction components
-    sin_dir = temp_data["Ball_direction_sin"]
-    cos_dir = temp_data["Ball_direction_cos"]
-    
-    # Calculate unit vector of ball direction
-    dir_magnitude = np.sqrt(sin_dir**2 + cos_dir**2)
-    dir_magnitude = np.where(dir_magnitude < 1e-10, 1e-10, dir_magnitude)
-    
-    unit_x = cos_dir / dir_magnitude
-    unit_y = sin_dir / dir_magnitude
+    # Get ball direction components (unit vector)
+    unit_x = temp_data["Ball_direction_cos"] 
+    unit_y = temp_data["Ball_direction_sin"]
     
     # Calculate base probabilities
     max_distance = np.sqrt(2)  # Maximum possible distance on a unit pitch
@@ -351,16 +347,16 @@ def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.1
     # Reduced probability for off-target shots
     left_off_target_prob = np.where(
         left_goal_off_target,
-        np.exp(-3 * np.abs(t_left) / max_distance) * 0.7,  # 70% factor for off-target
+        np.exp(-3 * np.abs(t_left) / max_distance) * 0.85,  # 85% factor for off-target
         0
-    )
+    ) 
     
     # Combine both probabilities
     left_shot_prob = left_on_target_prob + left_off_target_prob
     
     # Apply penalty area boost
     in_left_penalty_area = (ball_x < 0.18) & (ball_y > 0.3) & (ball_y < 0.7)
-    left_shot_prob = np.where(in_left_penalty_area, np.minimum(left_shot_prob * 1.5, 1.0), left_shot_prob)
+    left_shot_prob = np.where(in_left_penalty_area, np.minimum(left_shot_prob * 1.3, 1.0), left_shot_prob)
     
     # Do the same for right goal
     t_right = np.where(np.abs(unit_x) > 1e-10, (right_goal_x - ball_x) / unit_x, np.inf)
@@ -378,22 +374,30 @@ def add_shot_prediction_features(dataset: pd.DataFrame, goal_margin: float = 0.1
     
     right_off_target_prob = np.where(
         right_goal_off_target,
-        np.exp(-3 * np.abs(t_right) / max_distance) * 0.7,
+        np.exp(-3 * np.abs(t_right) / max_distance) * 0.85,
         0
     )
     
     right_shot_prob = right_on_target_prob + right_off_target_prob
     
     in_right_penalty_area = (ball_x > 0.82) & (ball_y > 0.3) & (ball_y < 0.7)
-    right_shot_prob = np.where(in_right_penalty_area, np.minimum(right_shot_prob * 1.5, 1.0), right_shot_prob)
+    right_shot_prob = np.where(in_right_penalty_area, np.minimum(right_shot_prob * 1.3, 1.0), right_shot_prob)
     
     # Choose probability based on which goal is closer
     temp_data["Ball_shot_probability"] = np.where(is_left_goal_closer, left_shot_prob, right_shot_prob)
-    
+
+    # Set shot probability to 0 for ball out of bounds
+    ball_out_idx = temp_data.index[
+        (temp_data["Ball-x"] < 0) | (temp_data["Ball-x"] > 1) |
+        (temp_data["Ball-y"] < 0) | (temp_data["Ball-y"] > 1)
+    ]
+
+    temp_data.loc[ball_out_idx, "Ball_shot_probability"] = 0
+
     return temp_data
 
 
-def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 1000000, frame_interval: int = 1000000,
+def get_frame_data(dataset: pd.DataFrame, columns: list[int], frame: int = 1_000_000, frame_interval: int = 1_000_000,
                    feature="acceleration") -> pd.DataFrame:
     """
     Extracts frame data for ball and players within a specified interval.
