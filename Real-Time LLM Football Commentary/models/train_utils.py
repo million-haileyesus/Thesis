@@ -89,8 +89,8 @@ def train_one_epoch(model, train_loader, optimizer, criterion, device, is_rnn, i
             train_labels.extend(label.cpu().numpy().flatten())
             
         metrics = {
-            "train_labels": np.array(train_preds),
-            "train_preds": np.array(train_labels)
+            "train_labels": np.array(train_labels),
+            "train_preds": np.array(train_preds)
         }
     
         epoch_loss = train_loss / len(train_loader)
