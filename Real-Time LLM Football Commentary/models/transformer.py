@@ -5,7 +5,7 @@ import math
 
 class PositionalEncoding(nn.Module):
     """
-    Adds positional encoding to the token embeddings for the Transformer
+    Adds positional encoding to the token embeddings for the Transformer.
     """
     def __init__(self, d_model, max_seq_length=5000, dropout=0.0):
         super(PositionalEncoding, self).__init__()
@@ -18,7 +18,7 @@ class PositionalEncoding(nn.Module):
         
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
+        pe = pe.unsqueeze(0) # Shape: [1, max_seq_length, d_model]
         
         # Register as buffer (not a parameter but should be saved and loaded with model)
         self.register_buffer('pe', pe)
@@ -30,17 +30,21 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class TransformerEncoder(nn.Module):
+    """
+    Custom Transformer Encoder module.
+    Projects input, adds positional encoding, and applies Transformer encoder layers.
+    """
     def __init__(self, input_size, d_model, nhead, num_layers, dim_feedforward, dropout_rate):
         super(TransformerEncoder, self).__init__()
         
         # Input projection to d_model dimensions
         self.input_projection = nn.Linear(input_size, d_model)
-        self.input_bn = nn.BatchNorm1d(d_model)
+        self.input_ln = nn.LayerNorm(d_model) 
         
         # Positional encoding
         self.positional_encoding = PositionalEncoding(d_model, dropout=dropout_rate)
         
-        # Transformer encoder
+        # Transformer encoder layers
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
@@ -53,29 +57,16 @@ class TransformerEncoder(nn.Module):
         self.init_weights()
         
     def init_weights(self):
-        # Initialize weights
-        nn.init.kaiming_uniform_(self.input_projection.weight)
-        nn.init.zeros_(self.input_projection.bias)
+        nn.init.kaiming_uniform_(self.input_projection.weight, nonlinearity="relu")
+        if self.input_projection.bias is not None:
+            nn.init.zeros_(self.input_projection.bias)
     
     def forward(self, src, src_mask=None, src_key_padding_mask=None):
         # src shape: [batch_size, seq_len, input_size]
-        batch_size = src.size(0)
-        
-        # Project input to d_model dimensions
-        src = self.input_projection(src)
-        
-        # Apply batch normalization
-        src_reshaped = src.reshape(-1, src.size(2))
-        src_normalized = self.input_bn(src_reshaped)
-        src = src_normalized.reshape(batch_size, -1, src.size(2))
-        
-        # Add positional encoding
-        src = self.positional_encoding(src)
-        
-        # Apply transformer encoder
-        # output shape: [batch_size, seq_len, d_model]
-        output = self.transformer_encoder(src, src_mask, src_key_padding_mask)
-        
+        projected_src = self.input_projection(src)
+        normalized_src = self.input_ln(projected_src)
+        positioned_src = self.positional_encoding(normalized_src)
+        output = self.transformer_encoder(positioned_src, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         return output
 
 class TransformerDecoder(nn.Module):
@@ -85,11 +76,11 @@ class TransformerDecoder(nn.Module):
         self.d_model = d_model
         self.num_classes = num_classes
         
-        # Embedding for decoder input
+        # Embedding for decoder input (from num_classes to d_model)
         self.embedding = nn.Linear(num_classes, d_model)
         self.positional_encoding = PositionalEncoding(d_model, dropout=dropout_rate)
         
-        # Transformer decoder
+        # Transformer decoder layers
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=d_model,
             nhead=nhead,
@@ -102,7 +93,7 @@ class TransformerDecoder(nn.Module):
         # Output projection
         self.output_projection = nn.Sequential(
             nn.Linear(d_model, d_model),
-            nn.BatchNorm1d(d_model),
+            nn.LayerNorm(d_model),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(d_model, num_classes)
@@ -111,251 +102,217 @@ class TransformerDecoder(nn.Module):
         self.init_weights()
     
     def init_weights(self):
-        # Initialize weights
-        nn.init.kaiming_uniform_(self.embedding.weight)
-        nn.init.zeros_(self.embedding.bias)
+        nn.init.kaiming_uniform_(self.embedding.weight, nonlinearity="relu")
+        if self.embedding.bias is not None:
+            nn.init.zeros_(self.embedding.bias)
         
         for layer in self.output_projection:
             if isinstance(layer, nn.Linear):
-                nn.init.kaiming_uniform_(layer.weight)
+                nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)
     
+    def generate_square_subsequent_mask(self, sz, device):
+        """Generate a square causal mask for the sequence of size sz."""
+        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1)
+        mask = mask.masked_fill(mask == 1, float('-inf'))
+        return mask
+    
     def forward(self, encoder_output, tgt=None, tgt_length=None, 
-                tgt_mask=None, memory_mask=None, 
-                tgt_key_padding_mask=None, memory_key_padding_mask=None,
-                teacher_forcing_ratio=0.5):
+                teacher_forcing_ratio=0.5, memory_key_padding_mask=None):
         """
-        Full sequence decoding
-        
-        Args:
-            encoder_output: Output from encoder [batch_size, src_seq_len, d_model]
-            tgt: Target sequence for teacher forcing [batch_size, tgt_seq_len, num_classes]
-            tgt_length: Length of output sequence to generate
-            tgt_mask: Mask for target sequence
-            memory_mask: Mask for encoder outputs
-            tgt_key_padding_mask: Padding mask for target sequence
-            memory_key_padding_mask: Padding mask for encoder outputs
-            teacher_forcing_ratio: Probability of using teacher forcing
-            
-        Returns:
-            outputs: Sequence of predictions [batch_size, tgt_seq_len, num_classes]
+        Autoregressive decoding for sequence-to-sequence tasks
         """
         batch_size = encoder_output.size(0)
+        device = encoder_output.device
         
         # Determine output sequence length
         if tgt_length is None:
-            tgt_length = tgt.size(1) if tgt is not None else encoder_output.size(1)
-        
-        # Create square subsequent mask for target sequence
-        if tgt_mask is None:
-            tgt_mask = self.generate_square_subsequent_mask(tgt_length).to(encoder_output.device)
-        
-        # Initialize first decoder input as zeros (start token)
-        decoder_input = torch.zeros(batch_size, 1, self.num_classes).to(encoder_output.device)
-        
-        # Store outputs
-        outputs = []
-        
-        # Generate output sequence
-        for t in range(tgt_length):
-            # Current decoder input sequence
-            current_input = decoder_input
-            
-            # Forward pass through decoder for current sequence
-            output = self.forward_step(current_input, encoder_output, tgt_mask[:t+1, :t+1], memory_mask,
-                                    tgt_key_padding_mask, memory_key_padding_mask)
-            # Output shape: [batch_size, t+1, num_classes]
-            
-            # Extract just the last timestep prediction
-            current_output = output[:, -1:, :]
-            outputs.append(current_output)
-            
-            # Teacher forcing: use ground truth as next input with probability teacher_forcing_ratio
-            if tgt is not None and t < tgt_length-1 and torch.rand(1).item() < teacher_forcing_ratio:
-                decoder_input = torch.cat([decoder_input, tgt[:, t:t+1, :]], dim=1)
+            if tgt is not None:
+                tgt_length = tgt.size(1)
             else:
-                decoder_input = torch.cat([decoder_input, current_output], dim=1)
+                tgt_length = encoder_output.size(1)
         
-        # Concatenate outputs along sequence dimension
-        return torch.cat(outputs, dim=1)
-    
-    def forward_step(self, tgt, memory, tgt_mask=None, memory_mask=None,
-                   tgt_key_padding_mask=None, memory_key_padding_mask=None):
-        """
-        Process target sequence with transformer decoder
+        # Start-of-sequence token (zeros)
+        sos_token = torch.zeros(batch_size, 1, self.num_classes, device=device)
         
-        Args:
-            tgt: Target sequence [batch_size, tgt_seq_len, num_classes]
-            memory: Encoder output [batch_size, src_seq_len, d_model]
-            tgt_mask: Mask for target sequence
-            memory_mask: Mask for encoder outputs
-            tgt_key_padding_mask: Padding mask for target sequence
-            memory_key_padding_mask: Padding mask for encoder outputs
+        if tgt is not None and torch.rand(1).item() < teacher_forcing_ratio:
+            # Teacher forcing: use ground truth as input
+            # Prepend SOS token to target sequence
+            decoder_input = torch.cat([sos_token, tgt[:, :-1, :]], dim=1)
             
-        Returns:
-            output: Prediction [batch_size, tgt_seq_len, num_classes]
-        """
-        batch_size = tgt.size(0)
-        
-        # Embed target sequence
-        tgt_embedded = self.embedding(tgt)
-        tgt_embedded = self.positional_encoding(tgt_embedded)
-        
-        # Apply transformer decoder
-        decoder_output = self.transformer_decoder(
-            tgt_embedded, memory, tgt_mask, memory_mask,
-            tgt_key_padding_mask, memory_key_padding_mask
-        )
-        # decoder_output shape: [batch_size, tgt_seq_len, d_model]
-        
-        # Apply output projection
-        decoder_output_flat = decoder_output.reshape(-1, self.d_model)
-        output_flat = self.output_projection[0](decoder_output_flat)  # Linear
-        output_flat = self.output_projection[1](output_flat)          # BatchNorm
-        output_flat = self.output_projection[2](output_flat)          # ReLU
-        output_flat = self.output_projection[3](output_flat)          # Dropout
-        output_flat = self.output_projection[4](output_flat)          # Final linear
-        
-        # Reshape back
-        output = output_flat.reshape(batch_size, -1, self.num_classes)
-        
-        return output
-    
-    def generate_square_subsequent_mask(self, sz):
-        """Generate a square mask for the sequence."""
-        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
-        
+            # Create causal mask
+            seq_len = decoder_input.size(1)
+            tgt_mask = self.generate_square_subsequent_mask(seq_len, device)
+            
+            # Forward pass
+            embedded_input = self.embedding(decoder_input)
+            positioned_input = self.positional_encoding(embedded_input)
+            
+            decoder_output = self.transformer_decoder(
+                positioned_input, 
+                encoder_output,
+                tgt_mask=tgt_mask,
+                memory_key_padding_mask=memory_key_padding_mask
+            )
+            
+            # Handle 3D tensor reshaping if needed
+            batch_size, seq_len, d_model = decoder_output.shape
+            decoder_output_flat = decoder_output.reshape(-1, d_model)
+            output_flat = self.output_projection(decoder_output_flat)
+            output = output_flat.reshape(batch_size, seq_len, self.num_classes)
+            return output
+        else:
+            # Autoregressive generation
+            outputs = []
+            decoder_input = sos_token
+            
+            for t in range(tgt_length):
+                seq_len = decoder_input.size(1)
+                tgt_mask = self.generate_square_subsequent_mask(seq_len, device)
+                
+                embedded_input = self.embedding(decoder_input)
+                positioned_input = self.positional_encoding(embedded_input)
+                
+                decoder_output = self.transformer_decoder(
+                    positioned_input, 
+                    encoder_output,
+                    tgt_mask=tgt_mask,
+                    memory_key_padding_mask=memory_key_padding_mask
+                )
+                
+                # Get last timestep output and apply projection
+                last_output = decoder_output[:, -1, :]  # [batch_size, d_model]
+                step_output = self.output_projection(last_output).unsqueeze(1)  # [batch_size, 1, num_classes]
+                outputs.append(step_output)
+                
+                # Use predicted output as next input
+                next_input = F.softmax(step_output, dim=-1)
+                decoder_input = torch.cat([decoder_input, next_input], dim=1)
+            
+            return torch.cat(outputs, dim=1)
 
 class Transformer(nn.Module):
     def __init__(self, input_size, d_model, nhead, num_encoder_layers, num_decoder_layers, 
-                 dim_feedforward, dropout_rate, num_classes):
+                 dim_feedforward, dropout_rate, num_classes, max_seq_length=5000):
         super(Transformer, self).__init__()
 
-        self.num_classes = num_classes
-        # Flag to determine if we're using encoder-only or decoder-only architecture
-        self.encoder_only = (num_decoder_layers == 0)
-        self.decoder_only = (num_encoder_layers == 0)
+        if num_encoder_layers == 0 and num_decoder_layers == 0:
+            raise ValueError("Both num_encoder_layers and num_decoder_layers cannot be zero.")
 
-        # Create encoder only if needed
-        if not self.decoder_only:        
+        self.d_model = d_model
+        self.num_classes = num_classes
+        self.encoder_only = (num_decoder_layers == 0) and (num_encoder_layers > 0)
+        self.decoder_only = (num_encoder_layers == 0) and (num_decoder_layers > 0)
+        self.encoder_decoder = (num_encoder_layers > 0) and (num_decoder_layers > 0)
+
+        # Create encoder if needed
+        if self.encoder_only or self.encoder_decoder:
             self.encoder = TransformerEncoder(
                 input_size, d_model, nhead, num_encoder_layers, dim_feedforward, dropout_rate
             )
         
-        # Create decoder only if needed
-        if not self.encoder_only:
-            self.input_embedding = nn.Linear(input_size, d_model)
-            self.input_positional_encoding = PositionalEncoding(d_model, dropout=dropout_rate)
-
+        # Create decoder if needed
+        if self.decoder_only or self.encoder_decoder:
             self.decoder = TransformerDecoder(
                 d_model, nhead, num_decoder_layers, dim_feedforward, dropout_rate, num_classes
             )
 
-        # For encoder-only model, add a classification head
+        # For encoder-only model (sequence classification/tagging)
         if self.encoder_only:
             self.classifier = nn.Sequential(
                 nn.Linear(d_model, d_model),
-                nn.BatchNorm1d(d_model),
+                nn.LayerNorm(d_model),
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
                 nn.Linear(d_model, num_classes)
             )
-            # Initialize weights for classifier
-            for layer in self.classifier:
-                if isinstance(layer, nn.Linear):
-                    nn.init.kaiming_uniform_(layer.weight)
-                    nn.init.zeros_(layer.bias)
+            self._init_classifier_weights()
+
+        # For decoder-only model
+        if self.decoder_only:
+            self.input_embedding = nn.Linear(input_size, d_model)
+            self.positional_encoding = PositionalEncoding(d_model, max_seq_length, dropout_rate)
             
+            decoder_layer = nn.TransformerEncoderLayer(
+                d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward,
+                dropout=dropout_rate, batch_first=True
+            )
+            self.decoder_stack = nn.TransformerEncoder(decoder_layer, num_layers=num_decoder_layers)
+            self.output_projection = nn.Linear(d_model, num_classes)
+            self._init_decoder_only_weights()
+
+    def _init_classifier_weights(self):
+        for layer in self.classifier:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+    def _init_decoder_only_weights(self):
+        nn.init.kaiming_uniform_(self.input_embedding.weight, nonlinearity="relu")
+        if self.input_embedding.bias is not None:
+            nn.init.zeros_(self.input_embedding.bias)
+        nn.init.kaiming_uniform_(self.output_projection.weight, nonlinearity="relu")
+        if self.output_projection.bias is not None:
+            nn.init.zeros_(self.output_projection.bias)
+
+    def generate_causal_mask(self, sz, device):
+        """Generates a square causal mask for a sequence of size sz."""
+        mask = torch.triu(torch.ones(sz, sz, device=device), diagonal=1)
+        mask = mask.masked_fill(mask == 1, float('-inf'))
+        return mask
     
-    def forward(self, src, tgt=None, tgt_length=None, teacher_forcing_ratio=0.5):
+    def forward(self, src, tgt=None, tgt_length=None, teacher_forcing_ratio=0.5,
+                src_key_padding_mask=None):
         """
-        Model forward pass - supports both encoder-decoder and encoder-only architectures
+        Forward pass for different transformer architectures
         
         Args:
-            src: Source sequence [batch_size, src_seq_len, input_size]
+            src: Source sequence [batch_size, seq_len, input_size]
             tgt: Target sequence for teacher forcing [batch_size, tgt_seq_len, num_classes]
-                 (ignored in encoder-only mode)
-            tgt_length: Length of output sequence to generate (ignored in encoder-only mode)
-            teacher_forcing_ratio: Probability of using teacher forcing (ignored in encoder-only mode)
-            
-        Returns:
-            outputs: Sequence of predictions 
-                     [batch_size, tgt_seq_len, num_classes] for encoder-decoder
-                     [batch_size, src_seq_len, num_classes] for encoder-only
+            tgt_length: Desired output length for generation
+            teacher_forcing_ratio: Probability of using teacher forcing
+            src_key_padding_mask: Padding mask for source sequence
         """
-        # Generate masks (optional, can be set to None to use defaults)
-        src_mask = None
-        src_key_padding_mask = None
         
-        # For encoder-only architecture, apply classification head directly
         if self.encoder_only:
-            # Encode input sequence
-            memory = self.encoder(src, src_mask, src_key_padding_mask)
-            
-            batch_size, seq_len, d_model = memory.shape
-            
-            # Apply classifier to each position in the sequence
-            memory_flat = memory.reshape(-1, d_model)
-            output_flat = self.classifier[0](memory_flat)  # Linear
-            output_flat = self.classifier[1](output_flat)  # BatchNorm
-            output_flat = self.classifier[2](output_flat)  # ReLU
-            output_flat = self.classifier[3](output_flat)  # Dropout
-            output_flat = self.classifier[4](output_flat)  # Final linear
-            
-            # Reshape back to sequence format
-            outputs = output_flat.reshape(batch_size, seq_len, -1)
-            return outputs
+            # Encoder-only: sequence classification/tagging
+            encoded = self.encoder(src, src_key_padding_mask=src_key_padding_mask)
+            output = self.classifier(encoded)
+            return output
         
-        # For encoder-decoder architecture, use the decoder
-        if not (self.encoder_only or self.decoder_only):
-            # Encode input sequence
-            memory = self.encoder(src, src_mask, src_key_padding_mask)
+        elif self.encoder_decoder:
+            # Encoder-decoder: sequence-to-sequence
+            encoded = self.encoder(src, src_key_padding_mask=src_key_padding_mask)
+            output = self.decoder(
+                encoded, 
+                tgt=tgt, 
+                tgt_length=tgt_length,
+                teacher_forcing_ratio=teacher_forcing_ratio,
+                memory_key_padding_mask=src_key_padding_mask
+            )
+            return output
+
+        elif self.decoder_only:
+            # Decoder-only: causal language modeling
+            batch_size, seq_len, _ = src.shape
+            device = src.device
             
-            memory_mask = None
-            tgt_key_padding_mask = None
-            memory_key_padding_mask = None
+            embedded = self.input_embedding(src)
+            positioned = self.positional_encoding(embedded)
             
-            # Generate target mask if target sequence is provided
-            tgt_mask = None
-            if tgt is not None:
-                tgt_mask = self.decoder.generate_square_subsequent_mask(tgt.size(1)).to(src.device)
+            causal_mask = self.generate_causal_mask(seq_len, device)
             
-            # Decode to generate output sequence
-            outputs = self.decoder(
-                memory, tgt, tgt_length,
-                tgt_mask, memory_mask,
-                tgt_key_padding_mask, memory_key_padding_mask,
-                teacher_forcing_ratio
+            decoded = self.decoder_stack(
+                positioned, 
+                mask=causal_mask, 
+                src_key_padding_mask=src_key_padding_mask
             )
             
-            return outputs
-
-        # For decoder-only architecture
-        if self.decoder_only:
-            src_embedded = self.input_embedding(src)
-            src_embedded = self.input_positional_encoding(src_embedded)
-            
-            batch_size, seq_len, _ = src_embedded.shape
-
-            # Create dummy encoder output (memory) with correct shape
-            dummy_memory = torch.zeros(batch_size, 1, self.decoder.d_model).to(src.device)
-            
-            # Generate tgt mask
-            tgt_mask = self.decoder.generate_square_subsequent_mask(seq_len).to(src.device)
-            
-            outputs = self.decoder(
-                encoder_output=dummy_memory,  # Decoder-only: dummy memory tensor
-                tgt=src_embedded,     # Pass in src_embedded as tgt
-                tgt_length=seq_len,
-                tgt_mask=tgt_mask,
-                memory_mask=None,
-                tgt_key_padding_mask=None,
-                memory_key_padding_mask=None,
-                teacher_forcing_ratio=0.0  # No teacher forcing in decoder-only mode
-            )
-            
-            return outputs
+            output = self.output_projection(decoded)
+            return output
+        
+        else:
+            raise RuntimeError("Model configuration is not recognized.")
 
