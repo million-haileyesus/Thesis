@@ -165,7 +165,10 @@ def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = T
         pandas.DataFrame: The original dataset with additional columns for selected metrics.
     """
     temp_data = dataset.copy()
-    start_idx = temp_data.columns.get_loc("Time [s]")
+    try:
+        start_idx = temp_data.columns.get_loc("Time [s]")
+    except:
+        start_idx = 0 # Accounting for "Frame"
     player_columns = temp_data.columns[start_idx + 1:]
     
     # Store all values for global scaling
@@ -459,7 +462,8 @@ def calculate_player_ball_distances(game_data, player_data, ball_data):
     """
     index = game_data.index
     result = pd.DataFrame(index=index)
-    result["Time [s]"] = game_data.loc[index, "Time [s]"]
+    if "Time [s]" in game_data.columns:
+        result["Time [s]"] = game_data.loc[index, "Time [s]"]
 
     # Calculate distance for each player
     for i in range(0, player_data.shape[1] - 1, 2):
