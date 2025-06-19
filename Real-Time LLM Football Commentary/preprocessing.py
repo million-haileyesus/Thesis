@@ -111,6 +111,7 @@ class PreProcessing:
 
         return home_away_data
 
+    
     def load_and_process_json_data(
             self, data_home_away: str | Path, add_ball_data: bool = True, 
             add_headers: bool = True, half_period: str | int = "both", 
@@ -130,11 +131,13 @@ class PreProcessing:
 
         return home_away_data
 
+    
     def _validate_parameters(self, half_period: int) -> None:
         """Validate input parameters."""
         if half_period not in (1, 2, "both"):
             raise ValueError("half_period must be either 1, 2 or both")
 
+    
     def _read_file(self, file_path: Path, is_json: bool = False) -> pd.DataFrame:
         """Read a single team's data file."""
         try:
@@ -145,6 +148,7 @@ class PreProcessing:
         except Exception as e:
             raise DataValidationError(f"Error reading {file_path}: {str(e)}")
 
+            
     def _fix_headers(self, dataset: pd.DataFrame, add_time: bool = False) -> pd.DataFrame:
         if not add_time:
             temp_data = dataset.iloc[2:].reset_index(drop=True)
@@ -160,6 +164,7 @@ class PreProcessing:
 
         return temp_data
 
+    
     def get_subs(self, dataset: pd.DataFrame) -> pd.DataFrame:
         temp_data = dataset.iloc[2:].reset_index(drop=True)
         temp_data.columns = dataset.iloc[1].values
@@ -169,6 +174,7 @@ class PreProcessing:
 
         return temp_data
 
+    
     def _add_ball_data(self, original_dataset: pd.DataFrame, player_dataset: pd.DataFrame) -> pd.DataFrame:
         """
         Addind ball tracking data to the dataset.
@@ -218,6 +224,7 @@ class PreProcessing:
 
         return headers
 
+    
     def _convert_to_numeric(self, dataset: pd.DataFrame) -> pd.DataFrame:
         temp_data = copy.deepcopy(dataset)
 
@@ -229,6 +236,7 @@ class PreProcessing:
 
         return temp_data
 
+    
     def _choose_halfs(self, dataset: pd.DataFrame, subs_dataset: pd.DataFrame, half_period: str | int = 1) -> pd.DataFrame:
         temp_data = copy.deepcopy(dataset)
 
@@ -253,6 +261,7 @@ class PreProcessing:
 
         return dataset
 
+    
     def _filter_nan_data(self, dataset: pd.DataFrame, remove_ball_nan: bool) -> pd.DataFrame:
         """
         Removing or filling NaN values
@@ -273,6 +282,7 @@ class PreProcessing:
 
         return period_data
 
+    
     def _fill_missing_with_interpolation_and_fill(self, dataset: pd.DataFrame) -> pd.DataFrame:
         """
         Fill NaN values in numeric columns using linear interpolation,
@@ -295,6 +305,7 @@ class PreProcessing:
 
         return df_filled
 
+    
     def _merge_team_data(self, data_home: pd.DataFrame, data_away: pd.DataFrame, add_ball_data: bool) -> pd.DataFrame:
         """Merge home and away team data into a single DataFrame."""
         if add_ball_data:
@@ -308,6 +319,7 @@ class PreProcessing:
                 data_away.iloc[:, 3:]  # Exclude Period, Frame, Time from away
             ], axis=1)
 
+    
     def player_visualization(
             self, dataset: pd.DataFrame, players: list[int] = [11], 
             sides: list[str] = ["Home"], marker_size: int = 7,
