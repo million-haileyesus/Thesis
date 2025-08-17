@@ -102,7 +102,7 @@ def plot_confusion_matrix(y_train, y_train_pred, y_test, y_pred, labels, split, 
 
     ax.set_xlabel("Predicted label")
     ax.set_ylabel("True label")
-    ax.set_title(f"{model_name.title()} Confusion Matrix Split #{(split + 1)}")
+    ax.set_title(f"{model_name.title()} Confusion Matrix {split}")
     plt.tight_layout()
     plt.show()
 
@@ -146,6 +146,8 @@ def plot_accuracy_history(history: dict[str, list], title: str = ""):
     ax.legend()
 
     plt.show()
+
+    return fig
 
 
 def calculate_player_metrics(dataset: pd.DataFrame, calculate_velocity: bool = True,
