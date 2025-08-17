@@ -45,12 +45,12 @@ def train_model(model, train_loader, validation_loader, epochs, optimizer_name, 
 
         if verbose:
             print(f"Epoch {epoch:{width}d}/{epochs}: "
-                  f"Train accuracy: {train_acc * 100:.2f}% | "
-                  f"Val accuracy: {val_acc * 100:.2f}% | "
-                  f"Train loss: {train_loss:.4f} | "
-                  f"Val loss: {val_loss:.4f} | "
+                  f"Train accuracy: {train_acc * 100:05.2f}% | "
+                  f"Val accuracy: {val_acc * 100:05.2f}% | "
+                  f"Train loss: {train_loss:05.4f} | "
+                  f"Val loss: {val_loss:05.4f} | "
                   f"learning rate: {l_rate:.6f} | "
-                  f"Precision: {val_metrics['precision'] * 100:.2f}% | Recall: {val_metrics['recall'] * 100:.2f}% | F1: {val_metrics['f1'] * 100:.2f}%")
+                  f"Precision: {val_metrics['precision'] * 100:05.2f}% | Recall: {val_metrics['recall'] * 100:05.2f}% | F1: {val_metrics['f1'] * 100:05.2f}%")
 
     return history, train_metrics["train_labels"], train_metrics["train_preds"], val_metrics["val_labels"], val_metrics["val_preds"]
 
@@ -61,8 +61,8 @@ def test_model(model, validation_loader, criterion, device, verbose=True, is_rnn
     history["validation_accuracy"].append(val_acc)
 
     if verbose:
-        print(f"Val accuracy: {val_acc * 100:.2f}% | "
-              f"Val loss: {val_loss:.4f} | "
-              f"Precision: {val_metrics['precision'] * 100:.2f}% | Recall: {val_metrics['recall'] * 100:.2f}% | F1: {val_metrics['f1'] * 100:.2f}%")
+        print(f"Val accuracy: {val_acc * 100:05.2f}% | "
+              f"Val loss: {val_loss:05.4f} | "
+              f"Precision: {val_metrics['precision'] * 100:05.2f}% | Recall: {val_metrics['recall'] * 100:05.2f}% | F1: {val_metrics['f1'] * 100:05.2f}%")
 
     return history, val_metrics["val_labels"], val_metrics["val_preds"]
